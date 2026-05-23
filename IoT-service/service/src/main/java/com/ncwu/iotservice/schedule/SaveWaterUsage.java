@@ -9,7 +9,6 @@ import com.ncwu.iotservice.service.impl.IoTDataServiceImpl;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -33,7 +32,6 @@ public class SaveWaterUsage {
     private final WaterUsageRecordMapper waterUsageRecordMapper;
     private final IoTDataService ioTDataService;
     private final ServiceConfig serviceConfig;
-    private final RocketMQTemplate rocketMQTemplate;
 
     /**
      * 调度器，用于管理定时任务
@@ -59,18 +57,15 @@ public class SaveWaterUsage {
         LocalDateTime now = LocalDateTime.now();
         String currentDate = now.toLocalDate().toString();
         
-        // 11:00执行每日保存任务，且当天未执行过
+        // 23:59执行每日保存任务，且当天未执行过
         if (now.getHour() == 23 && now.getMinute() == 59 && !currentDate.equals(lastExecutionDate)) {
             log.info("开始执行每日用水量保存任务...");
-            //todo 改用消息队列，保证消息不丢失。避免在凌晨系统宕机丢失数据。
-            // 让下游消费者处理保存任务，失败可重试
-            // rocketMQTemplate.convertAndSend("");
             for (int i = 1; i <= 3; i++) {
                 saveSchoolUsage(i, sum, now);
             }
             log.info("每日用水量保存任务执行完成");
             sum = 0;
-            lastExecutionDate = currentDate; // 记录已执行的日期
+            lastExecutionDate = currentDate;
         }
         int saveTimeInterval = serviceConfig.getSaveTimeInterval();
         for (int j = 1; j <= 3; j++) {

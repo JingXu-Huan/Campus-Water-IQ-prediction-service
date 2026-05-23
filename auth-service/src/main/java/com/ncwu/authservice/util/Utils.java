@@ -3,6 +3,7 @@ package com.ncwu.authservice.util;
 
 import com.ncwu.common.apis.warning_service.EmailServiceInterFace;
 import jakarta.mail.MessagingException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.jspecify.annotations.NonNull;
@@ -12,6 +13,7 @@ import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -24,10 +26,13 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class Utils {
 
     @DubboReference(version = "1.0.0",interfaceClass = EmailServiceInterFace.class)
     private EmailServiceInterFace emailServiceInterFace;
+
+    private final RocketMQTemplate rocketMQTemplate;
 
     public static String genUid(int type) {
         String prefix = "user_";
@@ -52,8 +57,10 @@ public class Utils {
                 redisTemplate.opsForValue().set("Verify:EmailCode:" + toEmail, code, 5, TimeUnit.MINUTES);
                 emailServiceInterFace.sendVerificationCode(toEmail, code);
             } catch (MessagingException e) {
-                //todo 消息队列通知
-                log.error("验证码发松失败，{}", toEmail);
+                // 消息队列通知 - 邮件发送失败时发送到MQ进行重试
+                log.error("验证码发送失败，{}，已发送到MQ重试", toEmail);
+                rocketMQTemplate.convertAndSend("auth:email:failed",
+                        java.util.Map.of("email", toEmail, "code", code));
             }
         }
     }

@@ -166,9 +166,15 @@ public class EmailCodeLoginStrategy implements LoginStrategy, CodeSender {
     @Override
     public void sendPhoneCode(String phoneNum) {
         String code = genValidCode();
-        //todo 接口防刷
-        //todo 接入手机短信服务
+        // 接口防刷 - 每个手机号每分钟最多1次
+        String limiterKey = "PhoneCode:limiter:" + phoneNum;
+        RRateLimiter rateLimiter = redissonClient.getRateLimiter(limiterKey);
+        rateLimiter.setRate(RateType.OVERALL, 1, 1, RateIntervalUnit.MINUTES);
+        if (!rateLimiter.tryAcquire()) {
+            log.warn("手机号 {} 请求过于频繁", phoneNum);
+            return;
+        }
         log.debug("手机登陆验证码{}", code);
-        //todo 异常消息队列处理
+        redisTemplate.opsForValue().set("Verify:PhoneCode:" + phoneNum, code, 5, TimeUnit.MINUTES);
     }
 }

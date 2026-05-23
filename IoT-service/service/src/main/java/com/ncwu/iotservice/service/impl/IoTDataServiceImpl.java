@@ -136,8 +136,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
 
     @Override
     public Result<Double> getFlowNow(String deviceId) {
-        //todo 加入redis缓存
-        // TTL 不超过5秒 key自定(value结构即可)
+        String cacheKey = "flow:now:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String fluxQuery = String.format("""
                 from(bucket: "water")
                 |> range(start: -10s)
@@ -159,6 +162,7 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
         } catch (Exception e) {
             throw new QueryFailedException("查询失败，请重试");
         }
+        redisTemplate.opsForValue().set(cacheKey, String.valueOf(flow), 5, TimeUnit.SECONDS);
         return Result.ok(flow);
     }
 
@@ -292,8 +296,23 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
 
     @Override
     public Result<List<UsageBO>> waterTrendsForTheWeek(int campus) {
-        //todo redis缓存
+        String cacheKey = "water:trends:" + campus;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            try {
+                List<UsageBO> usageBOS = objectMapper.readValue(cached,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, UsageBO.class));
+                return Result.ok(usageBOS);
+            } catch (JsonProcessingException e) {
+                log.warn("解析缓存趋势数据失败", e);
+            }
+        }
         List<UsageBO> usageBOS = waterUsageRecordMapper.waterTrendsForTheWeek(campus);
+        try {
+            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(usageBOS), 60, TimeUnit.SECONDS);
+        } catch (JsonProcessingException e) {
+            log.warn("序列化趋势数据失败", e);
+        }
         return Result.ok(usageBOS);
     }
 
@@ -412,7 +431,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
 
     @Override
     public Result<Double> getTurbidity(String deviceId) {
-        //todo redis缓存 TTL 不超过5秒，key自定义
+        String cacheKey = "water:turbidity:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String flux = String.format("""
                     from(bucket: "water")
                       |> range(start: -1m)
@@ -424,7 +447,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
                       |> last()
                       |> keep(columns: ["_time", "_value"])
                 """, deviceId);
-        return getQueryResult(flux);
+        Result<Double> result = getQueryResult(flux);
+        if (result.getData() != null && !result.getData().isNaN()) {
+            redisTemplate.opsForValue().set(cacheKey, String.valueOf(result.getData()), 5, TimeUnit.SECONDS);
+        }
+        return result;
     }
 
     @NonNull
@@ -444,7 +471,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
 
     @Override
     public Result<Double> getPh(String deviceId) {
-        //todo redis缓存 TTL 不超过5秒，key自定义
+        String cacheKey = "water:ph:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String flux = String.format("""
                     from(bucket: "water")
                       |> range(start: -1m)
@@ -456,12 +487,20 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
                       |> last()
                       |> keep(columns: ["_time", "_value"])
                 """, deviceId);
-        return getQueryResult(flux);
+        Result<Double> result = getQueryResult(flux);
+        if (result.getData() != null && !result.getData().isNaN()) {
+            redisTemplate.opsForValue().set(cacheKey, String.valueOf(result.getData()), 5, TimeUnit.SECONDS);
+        }
+        return result;
     }
 
     @Override
     public Result<Double> getChlorine(String deviceId) {
-        //todo redis缓存 TTL 不超过5秒，key自定义
+        String cacheKey = "water:chlorine:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String flux = String.format("""
                     from(bucket: "water")
                       |> range(start: -1m)
@@ -473,7 +512,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
                       |> last()
                       |> keep(columns: ["_time", "_value"])
                 """, deviceId);
-        return getQueryResult(flux);
+        Result<Double> result = getQueryResult(flux);
+        if (result.getData() != null && !result.getData().isNaN()) {
+            redisTemplate.opsForValue().set(cacheKey, String.valueOf(result.getData()), 5, TimeUnit.SECONDS);
+        }
+        return result;
     }
 
     @Override
@@ -584,8 +627,11 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
 
     @Override
     public Result<Double> getPressureNow(String deviceId) {
-        //todo 加入redis缓存
-        // TTL 不超过5秒 key自定(value结构即可)
+        String cacheKey = "water:pressure:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String fluxQuery = String.format("""
                 from(bucket: "water")
                 |> range(start: -1m)
@@ -607,13 +653,17 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
         } catch (Exception e) {
             throw new QueryFailedException("查询失败，请重试");
         }
+        redisTemplate.opsForValue().set(cacheKey, String.valueOf(pressure), 5, TimeUnit.SECONDS);
         return Result.ok(pressure);
     }
 
     @Override
     public Result<Double> getTemNow(String deviceId) {
-        //todo 加入redis缓存
-        // TTL 不超过5秒 key自定(value结构即可)
+        String cacheKey = "water:tem:" + deviceId;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            return Result.ok(Double.parseDouble(cached));
+        }
         String fluxQuery = String.format("""
                 from(bucket: "water")
                 |> range(start: -1m)
@@ -635,8 +685,8 @@ public class IoTDataServiceImpl extends ServiceImpl<IoTDeviceDataMapper, IotDevi
         } catch (Exception e) {
             throw new QueryFailedException("查询失败，请重试");
         }
+        redisTemplate.opsForValue().set(cacheKey, String.valueOf(tem), 5, TimeUnit.SECONDS);
         return Result.ok(tem);
-
     }
 
     @Override

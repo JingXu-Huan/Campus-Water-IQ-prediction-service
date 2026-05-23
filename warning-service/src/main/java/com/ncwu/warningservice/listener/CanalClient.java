@@ -113,9 +113,7 @@ public class CanalClient {
             String suggestion = switch (eventType) {
                 case "ABNORMAL" -> "请断电重启，并且检查传感器是否正常工作。";
                 case "OFFLINE" -> "设备离线，请将设备重新断电启动。";
-                //todo 通知用户
                 case "BurstPipe" -> "管网可能出现破损，请检查管网。";
-                //todo 通知用户
                 default -> "设备数据异常，请检查设备和传感器是否正常工作。";
             };
             weChatNotifyService.sendMdText(deviceCode, eventLevel, eventDesc, eventTime, suggestion);
@@ -153,7 +151,6 @@ public class CanalClient {
             );
 
             emailService.sendMail("📢 用户新报修单", content, "jingxushi13@gmail.com");
-            //todo 给用户发短信
         }
     }
 

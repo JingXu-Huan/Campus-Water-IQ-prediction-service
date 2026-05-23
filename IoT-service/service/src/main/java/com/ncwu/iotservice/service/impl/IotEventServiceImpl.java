@@ -3,64 +3,43 @@ package com.ncwu.iotservice.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.influxdb.client.InfluxDBClient;
-import com.influxdb.client.InfluxDBClientFactory;
 import com.influxdb.client.QueryApi;
 import com.influxdb.query.FluxTable;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.iotservice.entity.IotDeviceEvent;
 import com.ncwu.iotservice.mapper.IoTDeviceEventMapper;
 import com.ncwu.iotservice.service.IoTEventService;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * @author jingxu
  * @version 1.0.0
  * @since 2025/12/20
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class IotEventServiceImpl extends ServiceImpl<IoTDeviceEventMapper, IotDeviceEvent> implements IoTEventService {
 
-    private InfluxDBClient influxDBClient;
-    /**
-     * 调度器，用于管理定时任务
-     */
-    private ScheduledExecutorService scheduler;
-    private QueryApi queryApi;
-
-    @Value("${influx.token}")
-    private String influxToken;
-
+    private final InfluxDBClient influxDBClient;
     private final StringRedisTemplate redisTemplate;
 
-    @PostConstruct
-    public void init() {
-        influxDBClient = InfluxDBClientFactory
-                .create("http://localhost:8086",
-                        influxToken.toCharArray(), "ncwu", "water");
-        queryApi = influxDBClient.getQueryApi();
-        //虚拟线程
-        scheduler = Executors.newScheduledThreadPool(30,
-                Thread.ofVirtual().factory());
-    }
+    private QueryApi queryApi;
+
+    private static final double LEAK_FLOW_THRESHOLD = 0.1;
+    private static final char WATER_METER_TYPE = '1';
 
     @Override
     public Result<List<List<String>>> getLeakingDeviceList() {
         LocalDateTime now = LocalDateTime.now();
-        //是否位于目标时段
         if (now.getHour() == 23 || now.getHour() <= 5) {
             return check();
         } else {
@@ -68,9 +47,6 @@ public class IotEventServiceImpl extends ServiceImpl<IoTDeviceEventMapper, IotDe
         }
     }
 
-    /**
-     * 方法检测设备在此时段是否存在长时间低流量，若存在，则认为可能出现漏水
-     */
     private Result<List<List<String>>> check() {
         List<List<String>> list = new ArrayList<>();
         for (int i = 1; i <= 3; i++) {
@@ -82,15 +58,42 @@ public class IotEventServiceImpl extends ServiceImpl<IoTDeviceEventMapper, IotDe
 
     private List<String> run(int campus) {
         Set<Object> ids = redisTemplate.opsForHash().entries("OnLineMap").keySet();
-        ids.forEach(id -> {
-            //todo 编写fluxQuery语句来进行查询，时间窗口是过去的30秒
-            String flux = "";
+        StringBuilder deviceFilter = new StringBuilder();
+        for (Object id : ids) {
             String s = id.toString();
-            if (s.charAt(0) == '1' && s.substring(1, 2).equals(String.valueOf(campus))) {
-                List<FluxTable> fluxTables = queryApi.query(flux);
-                //todo 根据返回结果得到水流量数据
+            if (s.length() >= 2 && s.charAt(0) == WATER_METER_TYPE && s.substring(1, 2).equals(String.valueOf(campus))) {
+                deviceIds.add(s);
+                if (deviceFilter.length() > 0) {
+                    deviceFilter.append(" or ");
+                }
+                deviceFilter.append("r.deviceId == \"").append(s).append("\"");
             }
-        });
-        return null;
+        }
+        if (deviceFilter.isEmpty()) {
+            return List.of();
+        }
+        String flux = String.format("""
+            from(bucket: "water")
+              |> range(start: -30s)
+              |> filter(fn: (r) =>
+                r._measurement == "water_meter" and
+                r._field == "flow" and
+                (%s)
+              )
+            """, deviceFilter);
+        List<String> leakingDevices = new ArrayList<>();
+        try {
+            for (FluxTable table : queryApi.query(flux)) {
+                for (var record : table.getRecords()) {
+                    Double value = record.getValue() != null ? ((Number) record.getValue()).doubleValue() : 0;
+                    if (value > LEAK_FLOW_THRESHOLD) {
+                        leakingDevices.add(record.getDeviceId());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("漏水检测异常: {}", e.getMessage());
+        }
+        return leakingDevices;
     }
 }
