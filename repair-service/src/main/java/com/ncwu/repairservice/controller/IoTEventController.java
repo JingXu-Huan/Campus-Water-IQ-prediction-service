@@ -1,5 +1,6 @@
 package com.ncwu.repairservice.controller;
 
+import com.ncwu.common.domain.IotDeviceEvent;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.repairservice.service.IoTDeviceService;
 import lombok.RequiredArgsConstructor;
@@ -18,16 +19,17 @@ import java.util.List;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/iot-event")
+
 public class IoTEventController {
 
     private final IoTDeviceService ioTDeviceService;
 
     /**
-     * 添加用户的报修信息
+     * 添加系统的告警信息
      */
     @PostMapping("/addNewEvent")
-    public com.alibaba.nacos.api.model.v2.Result<Boolean> addNewEvent() {
-        return ioTDeviceService.addNewEvent();
+    public Result<Boolean> addNewEvent(IotDeviceEvent iotDeviceEvent) {
+        return ioTDeviceService.addNewEvent(iotDeviceEvent);
     }
 
     /**
