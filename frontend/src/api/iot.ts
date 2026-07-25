@@ -1096,7 +1096,7 @@ export const iotApi = {
         }
         
         // 检查是否是 JSON 错误响应（Content-Type 判断）
-        const contentType = response.headers['content-type'] || ''
+        const contentType = String(response.headers['content-type'] || '')
         if (contentType.includes('application/json')) {
             const text = await response.data.text()
             const data = JSON.parse(text)

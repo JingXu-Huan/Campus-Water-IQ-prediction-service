@@ -619,7 +619,7 @@ export default function Monitoring() {
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 10 }} unit="L/s" />
                       <Tooltip 
-                        formatter={(value: number | undefined) => value !== undefined ? [`${value.toFixed(2)} L/s`, '流量'] : ['无数据', '流量']}
+                        formatter={(value: unknown) => value !== undefined ? [`${Number(value).toFixed(2)} L/s`, '流量'] : ['无数据', '流量']}
                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
                       />
                       <Bar dataKey="flow" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -639,7 +639,7 @@ export default function Monitoring() {
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
                       <Tooltip 
-                        formatter={(value: number | undefined) => value !== undefined && value > 0 ? [`${value.toFixed(0)} 分`, '水质分数'] : ['无数据', '水质分数']}
+                        formatter={(value: unknown) => value !== undefined && Number(value) > 0 ? [`${Number(value).toFixed(0)} 分`, '水质分数'] : ['无数据', '水质分数']}
                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
                       />
                       <Bar dataKey="score" fill="#10b981" radius={[4, 4, 0, 0]} />

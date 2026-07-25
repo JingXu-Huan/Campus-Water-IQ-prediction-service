@@ -1396,7 +1396,7 @@ export default function Dashboard() {
                                         <XAxis dataKey="day" tick={{fontSize: 12}}/>
                                         <YAxis tick={{fontSize: 12}} unit="m³"/>
                                         <Tooltip
-                                            formatter={(value: number | undefined) => value !== undefined ? [`${value} m³`, '用水量'] : ['无数据', '用水量']}
+                                            formatter={(value: unknown) => value !== undefined ? [`${value} m³`, '用水量'] : ['无数据', '用水量']}
                                             contentStyle={{
                                                 borderRadius: '8px',
                                                 border: 'none',
@@ -1425,7 +1425,7 @@ export default function Dashboard() {
                                         <XAxis type="number" tick={{fontSize: 12}} unit="%" domain={[0, 100]}/>
                                         <YAxis dataKey="name" type="category" tick={{fontSize: 12}} width={60}/>
                                         <Tooltip
-                                            formatter={(value: number | undefined) => value !== undefined ? [`${value.toFixed(1)}%`, '用水占比'] : ['无数据', '用水占比']}
+                                            formatter={(value: unknown) => value !== undefined ? [`${Number(value).toFixed(1)}%`, '用水占比'] : ['无数据', '用水占比']}
                                             contentStyle={{
                                                 borderRadius: '8px',
                                                 border: 'none',
@@ -1453,7 +1453,7 @@ export default function Dashboard() {
                                         <XAxis type="number" tick={{fontSize: 12}} unit="%" domain={[0, 100]}/>
                                         <YAxis dataKey="name" type="category" tick={{fontSize: 12}} width={60}/>
                                         <Tooltip
-                                            formatter={(value: number | undefined) => value !== undefined ? [`${value.toFixed(1)}%`, '用水占比'] : ['无数据', '用水占比']}
+                                            formatter={(value: unknown) => value !== undefined ? [`${Number(value).toFixed(1)}%`, '用水占比'] : ['无数据', '用水占比']}
                                             contentStyle={{
                                                 borderRadius: '8px',
                                                 border: 'none',
