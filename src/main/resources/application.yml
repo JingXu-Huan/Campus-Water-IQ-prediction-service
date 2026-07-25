@@ -1,9 +1,7 @@
-dubbo:
+spring:
   application:
     name: prediction-service
-  registry:
-    address: nacos://40.81.229.5:8848
-    username: nacos
-    password: nacos
-  consumer:
-    check: false
+  profiles:
+    default: local
+server:
+  port: 8080

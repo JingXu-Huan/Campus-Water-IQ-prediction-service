@@ -1,0 +1,23 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  pgvector:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: campus_water
+      POSTGRES_USER: campus_water
+      POSTGRES_PASSWORD: campus_water
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus_water -d campus_water"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgvector_data:

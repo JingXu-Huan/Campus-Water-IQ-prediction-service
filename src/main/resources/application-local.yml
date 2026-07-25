@@ -1,0 +1,27 @@
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+mock:
+  api:
+    min-delay-ms: ${MOCK_API_MIN_DELAY_MS:500}
+    max-delay-ms: ${MOCK_API_MAX_DELAY_MS:1200}
+
+rag:
+  enabled: ${RAG_ENABLED:true}
+  knowledge-location: ${RAG_KNOWLEDGE_LOCATION:classpath*:knowledge/*.md}
+  max-results: ${RAG_MAX_RESULTS:4}
+  min-score: ${RAG_MIN_SCORE:0.65}
+  embedding:
+    api-key: ${ZHIPU_EMBEDDING_API_KEY:${API_KEY:}}
+    model: ${ZHIPU_EMBEDDING_MODEL:embedding-3}
+    dimensions: ${ZHIPU_EMBEDDING_DIMENSIONS:1024}
+  pgvector:
+    host: ${PGVECTOR_HOST:localhost}
+    port: ${PGVECTOR_PORT:5432}
+    database: ${PGVECTOR_DATABASE:campus_water}
+    user: ${PGVECTOR_USER:campus_water}
+    password: ${PGVECTOR_PASSWORD:campus_water}
+    table: ${PGVECTOR_TABLE:rag_embeddings}
