@@ -2,13 +2,16 @@ package com.ncwu.predictionservice.config;
 
 
 import com.ncwu.predictionservice.agent.WaterAgent;
+import com.ncwu.predictionservice.conversation.ConversationRepository;
 import com.ncwu.predictionservice.functionCalling.IotDeviceTools;
 import com.ncwu.predictionservice.functionCalling.OtherTools;
 import com.ncwu.predictionservice.functionCalling.RepairTools;
 import com.ncwu.predictionservice.functionCalling.WaterQueryTools;
 import dev.langchain4j.community.model.zhipu.ZhipuAiChatModel;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.service.AiServices;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,22 +34,29 @@ public class ModelConfig {
     private final OtherTools otherTools;
 
     @Bean
-    public ChatLanguageModel initModel() {
+    public ChatModel initModel() {
         return ZhipuAiChatModel
                 .builder()
                 .apiKey(key)
                 .model("glm-4-plus")
-                .callTimeout(Duration.ofSeconds(60))
                 .connectTimeout(Duration.ofSeconds(60))
-                .writeTimeout(Duration.ofSeconds(60))
                 .readTimeout(Duration.ofSeconds(60))
                 .build();
     }
 
     @Bean
-    public WaterAgent waterAgent(ChatLanguageModel chatLanguageModel) {
+    public WaterAgent waterAgent(ChatModel chatModel,
+                                 ChatMemoryStore chatMemoryStore,
+                                 ConversationRepository conversationRepository) {
         return AiServices.builder(WaterAgent.class)
-                .chatLanguageModel(chatLanguageModel)
+                .chatModel(chatModel)
+                .chatMemoryProvider(conversationId -> MessageWindowChatMemory.builder()
+                        .id(conversationId)
+                        .maxMessages(20)
+                        .chatMemoryStore(chatMemoryStore)
+                        .build())
+                .systemMessageProvider(conversationId -> WaterAgent.BASE_SYSTEM_PROMPT
+                        + conversationRepository.longTermContext(conversationId.toString()))
                 .tools(waterQueryTools,iotDeviceTools,repairTools,otherTools)   // ← Tools在这里注册
                 .build();
     }
