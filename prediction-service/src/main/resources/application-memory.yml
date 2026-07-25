@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${CHAT_MEMORY_DB_URL:jdbc:postgresql://localhost:5432/campus_water}
+    username: ${CHAT_MEMORY_DB_USERNAME:postgres}
+    password: ${CHAT_MEMORY_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/chat-memory-schema-postgresql.sql
+
+agent:
+  memory:
+    redis-ttl-hours: ${AGENT_MEMORY_REDIS_TTL_HOURS:24}
+    summary-after-messages: ${AGENT_MEMORY_SUMMARY_AFTER_MESSAGES:12}

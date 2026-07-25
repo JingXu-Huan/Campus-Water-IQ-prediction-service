@@ -3,7 +3,7 @@ package com.ncwu.predictionservice.controller;
 
 import com.ncwu.common.apis.IoTDataServiceApi;
 import com.ncwu.common.apis.iot_service.IotDataService;
-import com.ncwu.common.domain.bo.ToAIBO;
+import com.ncwu.common.domain.Bo.ToAIBO;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
@@ -15,6 +15,9 @@ import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import com.ncwu.predictionservice.conversation.AgentChatResponse;
+import com.ncwu.predictionservice.conversation.AgentConversation;
+import com.ncwu.predictionservice.conversation.AgentMessage;
 
 /**
  * @author jingxu
@@ -105,10 +108,45 @@ public class AIServiceController {
      * @param input 用户输入
      */
     @PostMapping("/chatWithAgent")
-    public Result<String> chat(@RequestParam String input) {
+    public Result<AgentChatResponse> chat(@RequestParam String input,
+                                          @RequestParam(required = false) String conversationId,
+                                          @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
         //用户输入内容例如：我想知道某校区某类型楼宇的某用水单元的某项数据。
         //Agent 要知道调用哪些接口，返回什么数据
-        return aiService.chatWithAgent(input);
+        return aiService.chatWithAgent(conversationId, userId, input);
+    }
+
+    @PostMapping("/conversations")
+    public Result<AgentConversation> createConversation(
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        return aiService.createConversation(userId);
+    }
+
+    @GetMapping("/conversations")
+    public Result<List<AgentConversation>> listConversations(
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        return aiService.listConversations(userId);
+    }
+
+    @GetMapping("/conversations/{conversationId}/messages")
+    public Result<List<AgentMessage>> listMessages(
+            @PathVariable String conversationId,
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        return aiService.listMessages(conversationId, userId);
+    }
+
+    @PostMapping("/conversations/{conversationId}/clear-context")
+    public Result<Void> clearContext(
+            @PathVariable String conversationId,
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        return aiService.clearConversationContext(conversationId, userId);
+    }
+
+    @DeleteMapping("/conversations/{conversationId}")
+    public Result<Void> deleteConversation(
+            @PathVariable String conversationId,
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        return aiService.deleteConversation(conversationId, userId);
     }
 
 

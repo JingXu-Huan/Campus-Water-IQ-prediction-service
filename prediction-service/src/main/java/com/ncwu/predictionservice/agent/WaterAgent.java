@@ -2,10 +2,12 @@ package com.ncwu.predictionservice.agent;
 
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.memory.ChatMemoryAccess;
 
-public interface WaterAgent {
+public interface WaterAgent extends ChatMemoryAccess {
 
-    @SystemMessage("""
+    String BASE_SYSTEM_PROMPT = """
             你是一个校园用水数据分析助手。
             用户会询问各校区、楼宇、用水单元的用水数据。
             根据用户问题，调用合适的工具查询数据，然后用自然语言回答。
@@ -33,6 +35,8 @@ public interface WaterAgent {
             
             - `210101001` = 2(类型) + 1(校区) + 01(楼) + 01(层) + 001(单元)
               - 水质传感器 / 花园校区 / 1号楼 / 1层 / 001
-            """)
-    String chat(@UserMessage String userInput);
+            """;
+
+    @SystemMessage(BASE_SYSTEM_PROMPT)
+    String chat(@MemoryId String conversationId, @UserMessage String userInput);
 }
