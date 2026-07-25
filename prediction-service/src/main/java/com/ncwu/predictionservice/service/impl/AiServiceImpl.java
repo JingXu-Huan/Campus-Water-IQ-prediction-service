@@ -238,7 +238,6 @@ public class AiServiceImpl implements AiService {
         if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
             return Result.fail(null, "会话不存在或无权限访问");
         }
-        waterAgent.evictChatMemory(conversationId);
         chatMemoryStore.deleteMessages(conversationId);
         conversationRepository.resetSummary(conversationId);
         return Result.ok(null);
@@ -254,7 +253,6 @@ public class AiServiceImpl implements AiService {
         if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
             return Result.fail(null, "会话不存在或无权限访问");
         }
-        waterAgent.evictChatMemory(conversationId);
         chatMemoryStore.deleteMessages(conversationId);
         conversationRepository.softDelete(conversationId);
         return Result.ok(null);
