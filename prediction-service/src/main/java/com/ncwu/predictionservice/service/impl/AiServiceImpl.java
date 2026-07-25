@@ -6,11 +6,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.common.apis.iot_service.IotDataService;
 import com.ncwu.predictionservice.agent.WaterAgent;
-import com.ncwu.predictionservice.exceptions.ChatException;
+import com.ncwu.predictionservice.conversation.AgentChatResponse;
+import com.ncwu.predictionservice.conversation.AgentConversation;
+import com.ncwu.predictionservice.conversation.AgentMessage;
+import com.ncwu.predictionservice.conversation.ConversationRepository;
+import com.ncwu.predictionservice.conversation.LongTermMemoryService;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.UsageBO;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -18,6 +23,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +45,9 @@ public class AiServiceImpl implements AiService {
     private final RedissonClient redissonClient;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final ObjectProvider<ConversationRepository> conversationRepositoryProvider;
+    private final ObjectProvider<LongTermMemoryService> longTermMemoryServiceProvider;
+    private final ObjectProvider<ChatMemoryStore> chatMemoryStoreProvider;
 
     private final IotDataService iotDataService;
 
@@ -151,16 +160,104 @@ public class AiServiceImpl implements AiService {
     }
 
     @Override
-    public Result<String> chatWithAgent(String input) {
-        // Function Calling
-        String chat;
-        try {
-            chat = waterAgent.chat(input);
-        } catch (Exception e) {
-            log.error("调用模型失败，请稍后重试");
-            return Result.fail("调用模型失败，请稍后重试");
+    public Result<AgentChatResponse> chatWithAgent(String conversationId, String userId, String input) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        LongTermMemoryService longTermMemoryService = longTermMemoryServiceProvider.getIfAvailable();
+        if (conversationRepository == null || longTermMemoryService == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
         }
-        return Result.ok(chat);
+        AgentConversation conversation;
+        try {
+            conversation = conversationId == null || conversationId.isBlank()
+                    ? conversationRepository.create(userId)
+                    : conversationRepository.findOwned(conversationId, userId)
+                    .orElseThrow(() -> new IllegalArgumentException("会话不存在或无权限访问"));
+        } catch (RuntimeException exception) {
+            return Result.fail(null, exception.getMessage());
+        }
+
+        RLock lock = redissonClient.getLock("agent:conversation:" + conversation.id());
+        try {
+            if (!lock.tryLock(5, 90, TimeUnit.SECONDS)) {
+                return Result.fail(null, "该会话正在生成回复，请稍后重试");
+            }
+            conversationRepository.appendMessage(conversation.id(), "user", input);
+            conversationRepository.setTitleFromFirstMessage(conversation.id(), input);
+            String answer = waterAgent.chat(conversation.id(), input);
+            conversationRepository.appendMessage(conversation.id(), "assistant", answer);
+            longTermMemoryService.refreshIfNeeded(conversation.id());
+            return Result.ok(new AgentChatResponse(conversation.id(), answer));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return Result.fail(null, "会话请求被中断，请稍后重试");
+        } catch (Exception e) {
+            log.error("会话 {} 调用模型失败", conversation.id(), e);
+            return Result.fail(null, "调用模型失败，请稍后重试");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    @Override
+    public Result<AgentConversation> createConversation(String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        return conversationRepository == null
+                ? Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务")
+                : Result.ok(conversationRepository.create(userId));
+    }
+
+    @Override
+    public Result<List<AgentConversation>> listConversations(String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        return conversationRepository == null
+                ? Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务")
+                : Result.ok(conversationRepository.findAllOwned(userId));
+    }
+
+    @Override
+    public Result<List<AgentMessage>> listMessages(String conversationId, String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        if (conversationRepository == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        }
+        if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
+            return Result.fail(null, "会话不存在或无权限访问");
+        }
+        return Result.ok(conversationRepository.messages(conversationId));
+    }
+
+    @Override
+    public Result<Void> clearConversationContext(String conversationId, String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        ChatMemoryStore chatMemoryStore = chatMemoryStoreProvider.getIfAvailable();
+        if (conversationRepository == null || chatMemoryStore == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        }
+        if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
+            return Result.fail(null, "会话不存在或无权限访问");
+        }
+        waterAgent.evictChatMemory(conversationId);
+        chatMemoryStore.deleteMessages(conversationId);
+        conversationRepository.resetSummary(conversationId);
+        return Result.ok(null);
+    }
+
+    @Override
+    public Result<Void> deleteConversation(String conversationId, String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        ChatMemoryStore chatMemoryStore = chatMemoryStoreProvider.getIfAvailable();
+        if (conversationRepository == null || chatMemoryStore == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        }
+        if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
+            return Result.fail(null, "会话不存在或无权限访问");
+        }
+        waterAgent.evictChatMemory(conversationId);
+        chatMemoryStore.deleteMessages(conversationId);
+        conversationRepository.softDelete(conversationId);
+        return Result.ok(null);
     }
 
     private double getRes(List<Double> usage) {
