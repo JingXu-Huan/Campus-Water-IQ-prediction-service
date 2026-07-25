@@ -7,14 +7,20 @@ import com.ncwu.common.domain.bo.ToAIBO;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
+import com.ncwu.predictionservice.agent.WaterStreamingAgent;
+import com.ncwu.predictionservice.trace.AgentChatResponse;
+import com.ncwu.predictionservice.trace.AgentStreamTraceCollector;
+import com.ncwu.predictionservice.trace.AgentTraceContext;
+import dev.langchain4j.service.TokenStream;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.io.IOException;
 
 /**
  * @author jingxu
@@ -28,11 +34,11 @@ import java.util.List;
 public class AIServiceController {
     private final AiService aiService;
 
-    @DubboReference(version = "1.0.0", interfaceClass = IoTDataServiceApi.class, timeout = 10000)
-    private IoTDataServiceApi ioTDataServiceApi;
+    private final IoTDataServiceApi ioTDataServiceApi;
 
-    @DubboReference(version = "1.0.0", interfaceClass = IotDataService.class, timeout = 10000)
-    private IotDataService iotDataService;
+    private final IotDataService iotDataService;
+    private final AgentTraceContext agentTraceContext;
+    private final WaterStreamingAgent waterStreamingAgent;
 
     /**
      * 预测某校区明天的用水量（自动获取近七天数据）
@@ -105,10 +111,62 @@ public class AIServiceController {
      * @param input 用户输入
      */
     @PostMapping("/chatWithAgent")
-    public Result<String> chat(@RequestParam String input) {
+    public Result<AgentChatResponse> chat(@RequestParam String input) {
         //用户输入内容例如：我想知道某校区某类型楼宇的某用水单元的某项数据。
         //Agent 要知道调用哪些接口，返回什么数据
-        return aiService.chatWithAgent(input);
+        try (AgentTraceContext.ActiveTrace activeTrace = agentTraceContext.begin()) {
+            Result<String> result = aiService.chatWithAgent(input);
+            if (result.getData() == null) {
+                return Result.fail(null, result.getMessage());
+            }
+            return Result.ok(new AgentChatResponse(result.getData(), activeTrace.snapshot()));
+        }
+    }
+
+    /**
+     * Streams answer tokens as SSE events. Event names: delta, trace, done and error.
+     */
+    @PostMapping(value = "/chatWithAgent/stream", produces = "text/event-stream")
+    public SseEmitter streamChat(@RequestParam String input) {
+        SseEmitter emitter = new SseEmitter(0L);
+        AgentStreamTraceCollector traceCollector = new AgentStreamTraceCollector();
+        try {
+            TokenStream tokenStream = waterStreamingAgent.chat(input);
+            tokenStream
+                    .onPartialResponse(token -> send(emitter, "delta", token))
+                    .onRetrieved(contents -> {
+                        traceCollector.recordRetrievedContent(contents);
+                        send(emitter, "trace", traceCollector.snapshot());
+                    })
+                    .onToolExecuted(execution -> {
+                        traceCollector.recordToolExecution(execution);
+                        send(emitter, "trace", traceCollector.snapshot());
+                    })
+                    .onCompleteResponse(ignored -> {
+                        send(emitter, "trace", traceCollector.snapshot());
+                        send(emitter, "done", "");
+                        emitter.complete();
+                    })
+                    .onError(error -> {
+                        log.error("流式 Agent 调用失败", error);
+                        send(emitter, "error", error.getMessage() == null ? "调用模型失败，请稍后重试" : error.getMessage());
+                        emitter.completeWithError(error);
+                    })
+                    .start();
+        } catch (Exception error) {
+            log.error("启动流式 Agent 调用失败", error);
+            send(emitter, "error", error.getMessage() == null ? "调用模型失败，请稍后重试" : error.getMessage());
+            emitter.completeWithError(error);
+        }
+        return emitter;
+    }
+
+    private void send(SseEmitter emitter, String eventName, Object payload) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(payload));
+        } catch (IOException sendError) {
+            emitter.completeWithError(sendError);
+        }
     }
 
 

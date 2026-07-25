@@ -10,10 +10,9 @@ import com.ncwu.predictionservice.exceptions.ChatException;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.UsageBO;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.dubbo.config.annotation.DubboReference;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -35,14 +34,13 @@ import static com.ncwu.predictionservice.system.Prompt.waterUseSuggestion;
 @RequiredArgsConstructor
 public class AiServiceImpl implements AiService {
 
-    private final ChatLanguageModel chatLanguageModel;
+    private final ChatModel chatModel;
     private final WaterAgent waterAgent;
     private final RedissonClient redissonClient;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
-    @DubboReference(version = "1.0.0", timeout = 10000)
-    private IotDataService iotDataService;
+    private final IotDataService iotDataService;
 
     String keyPrefix = "WaterPredictionUsage:";
 
@@ -76,7 +74,7 @@ public class AiServiceImpl implements AiService {
             String response;
             try {
                 if (lock.tryLock()) {
-                    response = chatLanguageModel.chat(waterUseSuggestion);
+                    response = chatModel.chat(waterUseSuggestion);
                     redisTemplate.opsForValue().set("suggestion", response, 30, TimeUnit.MINUTES);
                 } else return Result.ok("刷牙的时候记得把水龙头关掉哦");
             } catch (Exception e) {
@@ -112,7 +110,7 @@ public class AiServiceImpl implements AiService {
                         return Result.ok(cachedResult);
                     }
                     // 调用AI API
-                    String res = chatLanguageModel
+                    String res = chatModel
                             .chat("请根据我给你提供的水质信息，作出评价并且给出建议(50字)" +
                                     "：分数：" + score + "ph" + ph + "浊度" + th + "含氯量" + ch);
                     // 缓存结果，设置10分钟过期
@@ -143,7 +141,7 @@ public class AiServiceImpl implements AiService {
         if (suggestion != null) {
             return Result.ok(suggestion);
         } else {
-            String res = chatLanguageModel
+            String res = chatModel
                     .chat("我给你一个我们系统水质合格率的数据，你来写一句带有情绪价值的评语，不超过20字。水质合格率："
                             + data * 100 + "%");
             redisTemplate.opsForValue().set("suggestionOfDeviceData", res, 240, TimeUnit.SECONDS);
@@ -167,7 +165,7 @@ public class AiServiceImpl implements AiService {
 
     private double getRes(List<Double> usage) {
         try {
-            String response = chatLanguageModel.chat(
+            String response = chatModel.chat(
                     "Predict the next water usage value based on this data: " + usage.toString() +
                             ". Return ONLY a single number without any explanation, text, or formatting. " +
                             "Example response: 209.25"

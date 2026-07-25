@@ -5,7 +5,7 @@ import com.ncwu.common.apis.repair_service.DeviceReservationServiceApi;
 import com.ncwu.common.domain.dto.UserReportDTO;
 import com.ncwu.common.domain.vo.Result;
 import dev.langchain4j.agent.tool.Tool;
-import org.apache.dubbo.config.annotation.DubboReference;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,9 +14,9 @@ import org.springframework.stereotype.Component;
  * @since 2026/3/13
  */
 @Component
+@RequiredArgsConstructor
 public class RepairTools {
-    @DubboReference
-    private DeviceReservationServiceApi deviceReservationServiceApi;
+    private final DeviceReservationServiceApi deviceReservationServiceApi;
 
     @Tool("""
             此工具帮助用户填写设备报修单。需要以下信息：

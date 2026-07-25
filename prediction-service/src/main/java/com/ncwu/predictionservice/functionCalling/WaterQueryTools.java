@@ -5,7 +5,7 @@ import com.ncwu.common.domain.vo.Result;
 import dev.langchain4j.agent.tool.Tool;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import org.apache.dubbo.config.annotation.DubboReference;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -21,9 +21,9 @@ import java.util.Map;
  * @since 2026/3/12
  */
 @Component
+@RequiredArgsConstructor
 public class WaterQueryTools {
-    @DubboReference(version = "1.0.0", interfaceClass = IotDataService.class, timeout = 20000)
-    private IotDataService iotDataService;
+    private final IotDataService iotDataService;
 
     @Tool("""
             此工具查询三个校区的用水波动指数。school_1 表示花园校区，school_2 表示龙子湖校区，school_3表示江淮校区。

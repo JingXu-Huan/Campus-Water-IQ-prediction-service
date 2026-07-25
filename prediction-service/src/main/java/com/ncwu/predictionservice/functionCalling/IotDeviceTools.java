@@ -4,7 +4,7 @@ package com.ncwu.predictionservice.functionCalling;
 import com.ncwu.common.apis.iot_device.IotDeviceApi;
 import com.ncwu.common.domain.vo.Result;
 import dev.langchain4j.agent.tool.Tool;
-import org.apache.dubbo.config.annotation.DubboReference;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -17,9 +17,9 @@ import java.util.Map;
  * @since 2026/3/12
  */
 @Component
+@RequiredArgsConstructor
 public class IotDeviceTools {
-    @DubboReference(version = "1.0.0", interfaceClass = IotDeviceApi.class, timeout = 20000)
-    private IotDeviceApi iotDeviceApi;
+    private final IotDeviceApi iotDeviceApi;
 
     @Tool("""
             此工具用于检查设备状态，输入设备ID列表，返回设备状态。"
