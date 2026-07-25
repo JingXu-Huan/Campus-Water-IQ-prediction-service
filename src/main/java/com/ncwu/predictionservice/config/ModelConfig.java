@@ -70,12 +70,18 @@ public class ModelConfig {
         }
         ChatMemoryStore chatMemoryStore = chatMemoryStoreProvider.getIfAvailable();
         ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
-        if (chatMemoryStore != null && conversationRepository != null) {
+        if (chatMemoryStore != null) {
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.builder()
                     .id(conversationId)
                     .maxMessages(20)
                     .chatMemoryStore(chatMemoryStore)
                     .build());
+        } else {
+            // @MemoryId requires a provider even when persistent conversation
+            // storage is disabled. Keep a bounded, process-local context here.
+            builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
+        }
+        if (conversationRepository != null) {
             builder.systemMessageProvider(conversationId -> WaterAgent.SYSTEM_MESSAGE
                     + conversationRepository.longTermContext(conversationId.toString()));
         }
@@ -96,12 +102,16 @@ public class ModelConfig {
         }
         ChatMemoryStore chatMemoryStore = chatMemoryStoreProvider.getIfAvailable();
         ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
-        if (chatMemoryStore != null && conversationRepository != null) {
+        if (chatMemoryStore != null) {
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.builder()
                     .id(conversationId)
                     .maxMessages(20)
                     .chatMemoryStore(chatMemoryStore)
                     .build());
+        } else {
+            builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
+        }
+        if (conversationRepository != null) {
             builder.systemMessageProvider(conversationId -> WaterAgent.SYSTEM_MESSAGE
                     + conversationRepository.longTermContext(conversationId.toString()));
         }
