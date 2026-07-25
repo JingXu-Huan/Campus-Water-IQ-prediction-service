@@ -3,9 +3,8 @@ package com.ncwu.predictionservice.agent;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
-import dev.langchain4j.service.memory.ChatMemoryAccess;
 
-public interface WaterAgent extends ChatMemoryAccess {
+public interface WaterAgent {
 
     String SYSTEM_MESSAGE = """
             你是一个校园用水数据分析助手。
