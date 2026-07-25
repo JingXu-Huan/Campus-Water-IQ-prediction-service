@@ -2,6 +2,7 @@ spring:
   application:
     name: prediction-service
   profiles:
-    default: local
+    # 本地独立运行不需要 JDBC；部署会话持久化时由环境变量覆盖为 memory。
+    active: local
 server:
   port: 8080
