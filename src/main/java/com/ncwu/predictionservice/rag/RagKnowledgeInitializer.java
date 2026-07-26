@@ -157,24 +157,30 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
      */
     private List<Document> splitMarkdownSections(Document document) {
         List<Document> sections = new ArrayList<>();
+        // 下标 0 至 5 分别缓存 # 至 ###### 的最近一次标题，用于构造章节的完整上下文。
         String[] headingStack = new String[6];
+        // 没有一级标题前的文本仍应被索引，统一归入“文档前言”章节。
         String headingPath = PREAMBLE_HEADING;
         StringBuilder sectionContent = new StringBuilder();
         boolean insideFencedCodeBlock = false;
 
         for (String line : document.text().split("\\R", -1)) {
             String trimmedLine = line.trim();
+            // 围栏代码块中可能出现 Markdown 示例；此处仅切换状态，不解析其中的标题。
             if (trimmedLine.startsWith("```") || trimmedLine.startsWith("~~~")) {
                 insideFencedCodeBlock = !insideFencedCodeBlock;
             }
 
             Matcher matcher = insideFencedCodeBlock ? null : MARKDOWN_HEADING.matcher(line);
             if (matcher != null && matcher.matches()) {
+                // 新标题意味着上一个章节结束，先使用它已有的标题路径落库。
                 addSection(sections, sectionContent, document.metadata(), headingPath);
 
                 int level = matcher.group(1).length();
                 headingStack[level - 1] = matcher.group(2).trim();
+                // 进入较高层级时，之前的子标题已不再属于当前章节，需要清空。
                 Arrays.fill(headingStack, level, headingStack.length, null);
+                // 例如“# 运维 / ## 漏损处理”会记录为“运维 > 漏损处理”。
                 headingPath = Arrays.stream(headingStack)
                         .filter(title -> title != null && !title.isBlank())
                         .collect(Collectors.joining(" > "));
@@ -188,9 +194,11 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private void addSection(List<Document> sections, StringBuilder sectionContent,
                             Metadata documentMetadata, String headingPath) {
         if (sectionContent.isEmpty() || sectionContent.toString().isBlank()) {
+            // 连续标题之间没有正文时不生成空向量分片。
             sectionContent.setLength(0);
             return;
         }
+        // 复制原始元数据，确保 source、单文件删除标识和内容指纹不会在章节切片时丢失。
         Metadata metadata = documentMetadata.copy().put(HEADING_PATH_METADATA_KEY, headingPath);
         sections.add(Document.from(sectionContent.toString().strip(), metadata));
         sectionContent.setLength(0);
