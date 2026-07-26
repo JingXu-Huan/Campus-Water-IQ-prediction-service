@@ -1,6 +1,9 @@
 package com.ncwu.predictionservice.rag;
 
 import com.ncwu.predictionservice.config.RagProperties;
+import com.ncwu.predictionservice.rag.chunking.DocumentChunkingProcessor;
+import com.ncwu.predictionservice.rag.chunking.MarkdownDocumentChunkingProcessor;
+import com.ncwu.predictionservice.rag.chunking.RecursiveDocumentChunkingProcessor;
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.Metadata;
@@ -29,7 +32,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -37,13 +39,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
 /**
- * 将 classpath 中的 Markdown 知识库增量写入 PGVector。
+ * 将 classpath 中的知识库文件增量写入 PGVector。
  *
  * <p>状态表按文件保存内容指纹，而非保存整个知识库的总指纹。因此新增、修改、删除或改名时，
  * 只会删除并重新向量化受影响的文件；未变化文件不会再次调用嵌入模型。</p>
@@ -58,13 +58,15 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private static final String DOCUMENT_STATE_TABLE = "rag_document_ingestion_state";
     private static final String KNOWLEDGE_SET = "classpath-knowledge";
     private static final String DOCUMENT_ID_METADATA_KEY = "rag_document_id";
-    private static final String HEADING_PATH_METADATA_KEY = "rag_heading_path";
-    private static final String PREAMBLE_HEADING = "文档前言";
-    private static final Pattern MARKDOWN_HEADING = Pattern.compile("^(#{1,6})\\s+(.+?)(?:\\s+#+)?\\s*$");
 
     private final RagProperties ragProperties;
     private final EmbeddingModel zhipuEmbeddingModel;
     private final EmbeddingStore<TextSegment> pgVectorEmbeddingStore;
+    private final KnowledgeDocumentContentReader documentContentReader = new KnowledgeDocumentContentReader();
+    // Markdown 保留标题层级；文本和 Word 文档使用通用递归切分策略。
+    private final List<DocumentChunkingProcessor> documentChunkingProcessors = List.of(
+            new MarkdownDocumentChunkingProcessor(),
+            new RecursiveDocumentChunkingProcessor());
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
@@ -121,7 +123,7 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
             if (source == null) {
                 throw new IllegalStateException("无法识别 RAG 知识文件名：" + resource.getDescription());
             }
-            String content = resource.getContentAsString(StandardCharsets.UTF_8);
+            String content = documentContentReader.read(resource, source);
             String checksum = checksum(content);
             // 文件名同时作为状态表主键和向量元数据，便于按单文件清理与在 trace 中展示来源。
             Metadata metadata = Metadata.from(Map.of(
@@ -138,70 +140,25 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     }
 
     private void ingest(KnowledgeDocument document) {
-        // 先按 Markdown 标题层级切分；只有单个章节仍然过长时才按递归长度继续拆分。
-        List<Document> sections = splitMarkdownSections(document.document());
-        // 保留定义、步骤和边界条件，避免检索结果只包含一句孤立结论。
+        DocumentChunkingProcessor processor = findChunkingProcessor(document.id());
+        List<Document> preparedDocuments = processor.prepare(document.document());
+        // 所有预处理结果最终都经过递归切分，避免单个章节或 Word 段落过长。
         DocumentSplitter splitter = DocumentSplitters.recursive(800, 120);
         EmbeddingStoreIngestor.builder()
                 .documentSplitter(splitter)
                 .embeddingModel(zhipuEmbeddingModel)
                 .embeddingStore(pgVectorEmbeddingStore)
                 .build()
-                .ingest(sections);
-        log.info("已索引 RAG 文档：{}（{} 个 Markdown 章节）", document.id(), sections.size());
+                .ingest(preparedDocuments);
+        log.info("已索引 RAG 文档：{}（{}，{} 个预处理单元）",
+                document.id(), processor.strategyName(), preparedDocuments.size());
     }
 
-    /**
-     * 将 Markdown 解析为标题章节，并在每个章节元数据中保留完整标题路径。
-     * 代码块中的 {@code #} 不视为标题，避免把示例代码错误地拆成独立知识片段。
-     */
-    private List<Document> splitMarkdownSections(Document document) {
-        List<Document> sections = new ArrayList<>();
-        // 下标 0 至 5 分别缓存 # 至 ###### 的最近一次标题，用于构造章节的完整上下文。
-        String[] headingStack = new String[6];
-        // 没有一级标题前的文本仍应被索引，统一归入“文档前言”章节。
-        String headingPath = PREAMBLE_HEADING;
-        StringBuilder sectionContent = new StringBuilder();
-        boolean insideFencedCodeBlock = false;
-
-        for (String line : document.text().split("\\R", -1)) {
-            String trimmedLine = line.trim();
-            // 围栏代码块中可能出现 Markdown 示例；此处仅切换状态，不解析其中的标题。
-            if (trimmedLine.startsWith("```") || trimmedLine.startsWith("~~~")) {
-                insideFencedCodeBlock = !insideFencedCodeBlock;
-            }
-
-            Matcher matcher = insideFencedCodeBlock ? null : MARKDOWN_HEADING.matcher(line);
-            if (matcher != null && matcher.matches()) {
-                // 新标题意味着上一个章节结束，先使用它已有的标题路径落库。
-                addSection(sections, sectionContent, document.metadata(), headingPath);
-
-                int level = matcher.group(1).length();
-                headingStack[level - 1] = matcher.group(2).trim();
-                // 进入较高层级时，之前的子标题已不再属于当前章节，需要清空。
-                Arrays.fill(headingStack, level, headingStack.length, null);
-                // 例如“# 运维 / ## 漏损处理”会记录为“运维 > 漏损处理”。
-                headingPath = Arrays.stream(headingStack)
-                        .filter(title -> title != null && !title.isBlank())
-                        .collect(Collectors.joining(" > "));
-            }
-            sectionContent.append(line).append(System.lineSeparator());
-        }
-        addSection(sections, sectionContent, document.metadata(), headingPath);
-        return sections;
-    }
-
-    private void addSection(List<Document> sections, StringBuilder sectionContent,
-                            Metadata documentMetadata, String headingPath) {
-        if (sectionContent.isEmpty() || sectionContent.toString().isBlank()) {
-            // 连续标题之间没有正文时不生成空向量分片。
-            sectionContent.setLength(0);
-            return;
-        }
-        // 复制原始元数据，确保 source、单文件删除标识和内容指纹不会在章节切片时丢失。
-        Metadata metadata = documentMetadata.copy().put(HEADING_PATH_METADATA_KEY, headingPath);
-        sections.add(Document.from(sectionContent.toString().strip(), metadata));
-        sectionContent.setLength(0);
+    private DocumentChunkingProcessor findChunkingProcessor(String fileName) {
+        return documentChunkingProcessors.stream()
+                .filter(processor -> processor.supports(fileName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("RAG 不支持的知识文件类型：" + fileName));
     }
 
     private void removeDocumentEmbeddings(String documentId) {

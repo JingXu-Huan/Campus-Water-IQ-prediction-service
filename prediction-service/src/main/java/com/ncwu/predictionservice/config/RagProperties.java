@@ -10,7 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class RagProperties {
 
     private boolean enabled = true;
-    private String knowledgeLocation = "classpath*:knowledge/*.md";
+    // 支持 Markdown、纯文本和 Word 知识文件；具体切分策略由文件类型处理器决定。
+    private String knowledgeLocation = "classpath*:knowledge/*.*";
     private int maxResults = 4;
     private double minScore = 0.65D;
     private Embedding embedding = new Embedding();
