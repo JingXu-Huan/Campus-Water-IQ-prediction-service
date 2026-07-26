@@ -23,6 +23,7 @@ import java.time.Duration;
 @Configuration
 @RequiredArgsConstructor
 @EnableConfigurationProperties(RagProperties.class)
+// RAG is optional so the extracted service can still run without PGVector or an embedding key.
 @ConditionalOnProperty(prefix = "rag", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RagConfig {
 
@@ -70,6 +71,8 @@ public class RagConfig {
                 .maxResults(ragProperties.getMaxResults())
                 .minScore(ragProperties.getMinScore())
                 .build();
+        // The non-streaming Agent has no callback for retrieval events; attach here so its
+        // request-scoped trace can expose the same references as the streaming endpoint.
         return retriever.addListener(new ContentRetrieverListener() {
             @Override
             public void onResponse(ContentRetrieverResponseContext response) {

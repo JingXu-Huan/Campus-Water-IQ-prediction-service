@@ -58,6 +58,8 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
             }
 
             log.info("开始构建 RAG 知识库索引（{} 个文档）", documents.size());
+            // Re-index as one set: otherwise removed or renamed Markdown files would leave
+            // stale vectors that can still be retrieved and cited by the Agent.
             pgVectorEmbeddingStore.removeAll();
             DocumentSplitter splitter = DocumentSplitters.recursive(300, 50);
             EmbeddingStoreIngestor.builder()
@@ -88,6 +90,8 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private String checksum(List<Document> documents) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            // Source order is filesystem-dependent; sort before hashing to avoid needless
+            // embedding calls on a restart where the knowledge content is unchanged.
             documents.stream()
                     .map(document -> document.text())
                     .sorted(Comparator.naturalOrder())

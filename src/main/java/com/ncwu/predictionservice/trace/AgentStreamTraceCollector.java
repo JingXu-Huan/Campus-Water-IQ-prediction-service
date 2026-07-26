@@ -7,7 +7,11 @@ import dev.langchain4j.service.tool.ToolExecution;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/** Collects trace events emitted by one streaming Agent invocation. */
+/**
+ * Collects trace events emitted by one streaming Agent invocation.
+ * Streaming callbacks can run on model-client threads while SSE serialization runs on another thread,
+ * hence the copy-on-write lists rather than the ThreadLocal used by synchronous calls.
+ */
 public final class AgentStreamTraceCollector {
 
     private static final int MAX_SUMMARY_LENGTH = 180;
