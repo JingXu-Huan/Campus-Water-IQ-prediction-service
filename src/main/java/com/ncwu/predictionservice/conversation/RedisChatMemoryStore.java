@@ -44,8 +44,7 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
 
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
-        // Refresh the TTL on every turn: active conversations retain context, while abandoned
-        // ones do not leave unbounded serialized histories in Redis.
+        // 每轮对话刷新 TTL：活跃会话保留上下文，已废弃会话不会在 Redis 中无限累积序列化历史。
         redisTemplate.opsForValue().set(
                 key(memoryId),
                 ChatMessageSerializer.messagesToJson(messages),
