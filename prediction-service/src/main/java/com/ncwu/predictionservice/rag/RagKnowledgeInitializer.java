@@ -12,13 +12,13 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -38,6 +38,9 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
@@ -50,7 +53,6 @@ import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metad
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "rag", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RagKnowledgeInitializer implements ApplicationRunner {
 
@@ -62,15 +64,37 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private final RagProperties ragProperties;
     private final EmbeddingModel zhipuEmbeddingModel;
     private final EmbeddingStore<TextSegment> pgVectorEmbeddingStore;
+    private final Executor ragIndexingExecutor;
     private final KnowledgeDocumentContentReader documentContentReader = new KnowledgeDocumentContentReader();
     // Markdown 保留标题层级；文本和 Word 文档使用通用递归切分策略。
     private final List<DocumentChunkingProcessor> documentChunkingProcessors = List.of(
             new MarkdownDocumentChunkingProcessor(),
             new RecursiveDocumentChunkingProcessor());
 
+    public RagKnowledgeInitializer(RagProperties ragProperties, EmbeddingModel zhipuEmbeddingModel,
+                                   EmbeddingStore<TextSegment> pgVectorEmbeddingStore,
+                                   @Qualifier("ragIndexingExecutor") Executor ragIndexingExecutor) {
+        this.ragProperties = ragProperties;
+        this.zhipuEmbeddingModel = zhipuEmbeddingModel;
+        this.pgVectorEmbeddingStore = pgVectorEmbeddingStore;
+        this.ragIndexingExecutor = ragIndexingExecutor;
+    }
+
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void run(ApplicationArguments args) throws IOException {
         List<KnowledgeDocument> documents = loadKnowledgeDocuments();
+        CompletableFuture.runAsync(() -> synchronizeKnowledge(documents), ragIndexingExecutor)
+                .whenComplete((unused, exception) -> {
+                    if (exception == null) {
+                        log.info("RAG 异步索引任务完成（{} 个文档）", documents.size());
+                    } else {
+                        log.error("RAG 异步索引任务失败", exception);
+                    }
+                });
+        log.info("RAG 异步索引任务已提交（{} 个文档）", documents.size());
+    }
+
+    private void synchronizeKnowledge(List<KnowledgeDocument> documents) {
         try (Connection connection = openConnection()) {
             createStateTables(connection);
             migrateLegacyIndexIfNecessary(connection);
@@ -111,6 +135,8 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
             } else {
                 log.info("RAG 知识库增量索引完成：新增或更新 {} 个文档，移除 {} 个文档", indexedCount, removedCount);
             }
+        } catch (SQLException exception) {
+            throw new CompletionException("RAG 知识库索引失败", exception);
         }
     }
 

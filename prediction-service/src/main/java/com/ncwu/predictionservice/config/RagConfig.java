@@ -16,9 +16,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.concurrent.Executor;
 
 @Configuration
 @RequiredArgsConstructor
@@ -28,6 +30,23 @@ import java.time.Duration;
 public class RagConfig {
 
     private final RagProperties ragProperties;
+
+    /**
+     * 索引任务可能连续调用嵌入模型，使用单线程可避免同一知识库被并发重复写入。
+     * 应用启动只负责提交任务，不等待索引完成。
+     */
+    @Bean("ragIndexingExecutor")
+    public Executor ragIndexingExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(1);
+        executor.setThreadNamePrefix("rag-indexing-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 
     @Bean
     public EmbeddingModel zhipuEmbeddingModel() {
