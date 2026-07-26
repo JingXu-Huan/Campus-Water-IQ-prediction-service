@@ -5,7 +5,7 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.MemoryId;
 
-/** Streaming variant of the Water Agent. */
+/** Water Agent 的流式响应版本。 */
 public interface WaterStreamingAgent {
 
     @SystemMessage(WaterAgent.SYSTEM_MESSAGE)

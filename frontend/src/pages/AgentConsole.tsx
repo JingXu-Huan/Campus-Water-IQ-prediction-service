@@ -63,8 +63,8 @@ export default function AgentConsole() {
         const data: string[] = []
         frame.replace(/\r/g, '').split('\n').forEach((line) => {
           if (line.startsWith('event:')) eventName = line.substring(6).trim()
-          // SSE permits one optional space after "data:".  Only remove that
-          // protocol separator: Markdown relies on leading spaces and newlines.
+          // SSE 允许在 "data:" 后带一个可选空格。这里只移除协议分隔符，
+          // 因为 Markdown 依赖行首空格与换行。
           if (line.startsWith('data:')) {
             const value = line.substring(5)
             data.push(value.startsWith(' ') ? value.substring(1) : value)
@@ -73,8 +73,8 @@ export default function AgentConsole() {
         const payload = data.join('\n')
         if (eventName === 'delta') updateAgent((message) => ({ ...message, content: message.content + payload }))
         if (eventName === 'trace') {
-          // Backend sends complete trace snapshots after every retrieval/tool event;
-          // replace rather than append so a streamed trace never renders duplicates.
+          // 后端会在每次检索或工具事件后发送完整轨迹快照；此处覆盖而非累加，
+          // 避免流式页面重复渲染相同节点。
           const trace: AgentTrace = JSON.parse(payload)
           updateAgent((message) => ({ ...message, trace }))
         }

@@ -77,13 +77,12 @@ public class ModelConfig {
                     .chatMemoryStore(chatMemoryStore)
                     .build());
         } else {
-            // @MemoryId requires a provider even when persistent conversation
-            // storage is disabled. Keep a bounded, process-local context here; it is intentionally
-            // not durable and only supports one request/stream in the standalone local profile.
+            // 即使关闭持久化会话，@MemoryId 仍要求提供 Provider。这里保留受限的进程内上下文，
+            // 它不持久化，仅服务于独立 local profile 下的一次请求或流式调用。
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
         }
         if (conversationRepository != null) {
-            // Build this per memory id because the database summary is conversation-specific.
+            // 数据库摘要与会话一一对应，因此按 memoryId 动态构造系统提示词。
             builder.systemMessageProvider(conversationId -> WaterAgent.SYSTEM_MESSAGE
                     + conversationRepository.longTermContext(conversationId.toString()));
         }
@@ -111,7 +110,7 @@ public class ModelConfig {
                     .chatMemoryStore(chatMemoryStore)
                     .build());
         } else {
-            // Keep the streaming Agent valid with @MemoryId even when the memory profile is off.
+            // memory profile 未启用时，仍需为流式 Agent 的 @MemoryId 提供有效 Provider。
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
         }
         if (conversationRepository != null) {

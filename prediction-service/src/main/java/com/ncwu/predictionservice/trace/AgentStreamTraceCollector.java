@@ -8,9 +8,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Collects trace events emitted by one streaming Agent invocation.
- * Streaming callbacks can run on model-client threads while SSE serialization runs on another thread,
- * hence the copy-on-write lists rather than the ThreadLocal used by synchronous calls.
+ * 收集单次流式 Agent 调用产生的轨迹事件。
+ * 流式回调可能运行在模型客户端线程，而 SSE 序列化位于其他线程，
+ * 因此使用写时复制列表，而不是同步调用所使用的 ThreadLocal。
  */
 public final class AgentStreamTraceCollector {
 

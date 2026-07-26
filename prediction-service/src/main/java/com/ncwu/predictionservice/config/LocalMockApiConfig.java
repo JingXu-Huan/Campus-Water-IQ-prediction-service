@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Local replacements for APIs normally supplied by the other microservices.
- * They keep this extracted module runnable without a registry or providers.
+ * 替代其他微服务通常提供的本地 API 实现。
+ * 使提取后的模块不依赖注册中心或外部服务也能独立运行。
  */
 @Configuration
 public class LocalMockApiConfig {

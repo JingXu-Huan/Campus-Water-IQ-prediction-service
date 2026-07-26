@@ -23,7 +23,7 @@ import java.time.Duration;
 @Configuration
 @RequiredArgsConstructor
 @EnableConfigurationProperties(RagProperties.class)
-// RAG is optional so the extracted service can still run without PGVector or an embedding key.
+// RAG 为可选能力，缺少 PGVector 或嵌入模型密钥时，提取后的服务仍可独立运行。
 @ConditionalOnProperty(prefix = "rag", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class RagConfig {
 
@@ -71,8 +71,8 @@ public class RagConfig {
                 .maxResults(ragProperties.getMaxResults())
                 .minScore(ragProperties.getMinScore())
                 .build();
-        // The non-streaming Agent has no callback for retrieval events; attach here so its
-        // request-scoped trace can expose the same references as the streaming endpoint.
+        // 非流式 Agent 没有检索事件回调；在此挂载监听器后，其请求级 trace 才能和流式接口一样
+        // 返回引用的知识库资料。
         return retriever.addListener(new ContentRetrieverListener() {
             @Override
             public void onResponse(ContentRetrieverResponseContext response) {

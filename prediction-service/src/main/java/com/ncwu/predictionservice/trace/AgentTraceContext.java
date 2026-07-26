@@ -14,8 +14,7 @@ public class AgentTraceContext {
 
     private static final int MAX_SUMMARY_LENGTH = 180;
     private static final int MAX_EXCERPT_LENGTH = 220;
-    // Tool callbacks for a normal Agent call stay on the request thread. ThreadLocal keeps
-    // simultaneous HTTP requests from mixing their tool and RAG references.
+    // 普通 Agent 调用的工具回调位于请求线程；ThreadLocal 可避免并发 HTTP 请求混入彼此的工具和 RAG 引用。
     private final ThreadLocal<MutableTrace> current = new ThreadLocal<>();
 
     public ActiveTrace begin() {
@@ -87,7 +86,7 @@ public class AgentTraceContext {
 
         @Override
         public void close() {
-            // Servlet threads are reused; leaving the trace here would leak it into a later request.
+            // Servlet 线程会被复用；不清理会将本次轨迹泄漏到后续请求。
             current.remove();
         }
     }
