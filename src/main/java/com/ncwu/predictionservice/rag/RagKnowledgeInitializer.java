@@ -29,6 +29,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -36,6 +37,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static dev.langchain4j.store.embedding.filter.MetadataFilterBuilder.metadataKey;
 
@@ -55,6 +58,9 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private static final String DOCUMENT_STATE_TABLE = "rag_document_ingestion_state";
     private static final String KNOWLEDGE_SET = "classpath-knowledge";
     private static final String DOCUMENT_ID_METADATA_KEY = "rag_document_id";
+    private static final String HEADING_PATH_METADATA_KEY = "rag_heading_path";
+    private static final String PREAMBLE_HEADING = "文档前言";
+    private static final Pattern MARKDOWN_HEADING = Pattern.compile("^(#{1,6})\\s+(.+?)(?:\\s+#+)?\\s*$");
 
     private final RagProperties ragProperties;
     private final EmbeddingModel zhipuEmbeddingModel;
@@ -132,6 +138,8 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     }
 
     private void ingest(KnowledgeDocument document) {
+        // 先按 Markdown 标题层级切分；只有单个章节仍然过长时才按递归长度继续拆分。
+        List<Document> sections = splitMarkdownSections(document.document());
         // 保留定义、步骤和边界条件，避免检索结果只包含一句孤立结论。
         DocumentSplitter splitter = DocumentSplitters.recursive(800, 120);
         EmbeddingStoreIngestor.builder()
@@ -139,8 +147,53 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
                 .embeddingModel(zhipuEmbeddingModel)
                 .embeddingStore(pgVectorEmbeddingStore)
                 .build()
-                .ingest(document.document());
-        log.info("已索引 RAG 文档：{}", document.id());
+                .ingest(sections);
+        log.info("已索引 RAG 文档：{}（{} 个 Markdown 章节）", document.id(), sections.size());
+    }
+
+    /**
+     * 将 Markdown 解析为标题章节，并在每个章节元数据中保留完整标题路径。
+     * 代码块中的 {@code #} 不视为标题，避免把示例代码错误地拆成独立知识片段。
+     */
+    private List<Document> splitMarkdownSections(Document document) {
+        List<Document> sections = new ArrayList<>();
+        String[] headingStack = new String[6];
+        String headingPath = PREAMBLE_HEADING;
+        StringBuilder sectionContent = new StringBuilder();
+        boolean insideFencedCodeBlock = false;
+
+        for (String line : document.text().split("\\R", -1)) {
+            String trimmedLine = line.trim();
+            if (trimmedLine.startsWith("```") || trimmedLine.startsWith("~~~")) {
+                insideFencedCodeBlock = !insideFencedCodeBlock;
+            }
+
+            Matcher matcher = insideFencedCodeBlock ? null : MARKDOWN_HEADING.matcher(line);
+            if (matcher != null && matcher.matches()) {
+                addSection(sections, sectionContent, document.metadata(), headingPath);
+
+                int level = matcher.group(1).length();
+                headingStack[level - 1] = matcher.group(2).trim();
+                Arrays.fill(headingStack, level, headingStack.length, null);
+                headingPath = Arrays.stream(headingStack)
+                        .filter(title -> title != null && !title.isBlank())
+                        .collect(Collectors.joining(" > "));
+            }
+            sectionContent.append(line).append(System.lineSeparator());
+        }
+        addSection(sections, sectionContent, document.metadata(), headingPath);
+        return sections;
+    }
+
+    private void addSection(List<Document> sections, StringBuilder sectionContent,
+                            Metadata documentMetadata, String headingPath) {
+        if (sectionContent.isEmpty() || sectionContent.toString().isBlank()) {
+            sectionContent.setLength(0);
+            return;
+        }
+        Metadata metadata = documentMetadata.copy().put(HEADING_PATH_METADATA_KEY, headingPath);
+        sections.add(Document.from(sectionContent.toString().strip(), metadata));
+        sectionContent.setLength(0);
     }
 
     private void removeDocumentEmbeddings(String documentId) {
