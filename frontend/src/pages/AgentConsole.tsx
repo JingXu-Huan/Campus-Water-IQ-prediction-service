@@ -73,6 +73,8 @@ export default function AgentConsole() {
         const payload = data.join('\n')
         if (eventName === 'delta') updateAgent((message) => ({ ...message, content: message.content + payload }))
         if (eventName === 'trace') {
+          // Backend sends complete trace snapshots after every retrieval/tool event;
+          // replace rather than append so a streamed trace never renders duplicates.
           const trace: AgentTrace = JSON.parse(payload)
           updateAgent((message) => ({ ...message, trace }))
         }

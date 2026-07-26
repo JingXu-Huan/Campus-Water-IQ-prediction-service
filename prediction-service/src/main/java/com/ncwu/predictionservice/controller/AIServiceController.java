@@ -102,6 +102,8 @@ public class AIServiceController {
                                  @RequestParam(required = false) String conversationId) {
         SseEmitter emitter = new SseEmitter(0L);
         AgentStreamTraceCollector traceCollector = new AgentStreamTraceCollector();
+        // A stream without a persistent conversation must never share a memory window with a
+        // different browser request. A supplied conversation id is used only in the memory profile.
         String memoryId = conversationId == null || conversationId.isBlank() ? "stream-" + UUID.randomUUID() : conversationId;
         try {
             TokenStream tokenStream = waterStreamingAgent.chat(memoryId, input);
@@ -109,6 +111,8 @@ public class AIServiceController {
                     .onPartialResponse(token -> send(emitter, "delta", token))
                     .onRetrieved(contents -> {
                         traceCollector.recordRetrievedContent(contents);
+                        // Emit incremental snapshots so the UI can show provenance before the
+                        // model finishes composing its answer.
                         send(emitter, "trace", traceCollector.snapshot());
                     })
                     .onToolExecuted(execution -> {

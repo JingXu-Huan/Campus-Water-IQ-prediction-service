@@ -78,10 +78,12 @@ public class ModelConfig {
                     .build());
         } else {
             // @MemoryId requires a provider even when persistent conversation
-            // storage is disabled. Keep a bounded, process-local context here.
+            // storage is disabled. Keep a bounded, process-local context here; it is intentionally
+            // not durable and only supports one request/stream in the standalone local profile.
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
         }
         if (conversationRepository != null) {
+            // Build this per memory id because the database summary is conversation-specific.
             builder.systemMessageProvider(conversationId -> WaterAgent.SYSTEM_MESSAGE
                     + conversationRepository.longTermContext(conversationId.toString()));
         }
@@ -109,6 +111,7 @@ public class ModelConfig {
                     .chatMemoryStore(chatMemoryStore)
                     .build());
         } else {
+            // Keep the streaming Agent valid with @MemoryId even when the memory profile is off.
             builder.chatMemoryProvider(conversationId -> MessageWindowChatMemory.withMaxMessages(20));
         }
         if (conversationRepository != null) {

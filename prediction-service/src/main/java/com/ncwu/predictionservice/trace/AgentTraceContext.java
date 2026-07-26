@@ -14,6 +14,8 @@ public class AgentTraceContext {
 
     private static final int MAX_SUMMARY_LENGTH = 180;
     private static final int MAX_EXCERPT_LENGTH = 220;
+    // Tool callbacks for a normal Agent call stay on the request thread. ThreadLocal keeps
+    // simultaneous HTTP requests from mixing their tool and RAG references.
     private final ThreadLocal<MutableTrace> current = new ThreadLocal<>();
 
     public ActiveTrace begin() {
@@ -85,6 +87,7 @@ public class AgentTraceContext {
 
         @Override
         public void close() {
+            // Servlet threads are reused; leaving the trace here would leak it into a later request.
             current.remove();
         }
     }
