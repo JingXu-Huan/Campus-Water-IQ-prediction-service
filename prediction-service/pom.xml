@@ -22,7 +22,7 @@
         <spring-ai.version>1.1.2</spring-ai.version>
         <langchain4j.version>1.18.0</langchain4j.version>
         <langchain4j.community.version>1.18.0-beta28</langchain4j.community.version>
-        <redisson.version>3.52.0</redisson.version>
+        <redisson.version>4.7.0</redisson.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <apache-poi.version>5.3.0</apache-poi.version>
     </properties>
