@@ -160,7 +160,7 @@ EmbeddingStore<TextSegment> store = PgVectorEmbeddingStore.builder()
 
 ### 6.3 文档导入：`EmbeddingStoreIngestor`
 
-启动时 `RagKnowledgeInitializer` 会读取 `src/main/resources/knowledge/*.md`，按 `300` token 左右的片段、`50` token 重叠切分，再写入 PGVector：
+启动时 `RagKnowledgeInitializer` 会通过 LangChain4j 的 `FileSystemDocumentLoader` 读取本地的 `src/main/resources/knowledge/*.md`；应用打包为 JAR 后自动切换为 `ClassPathDocumentLoader`，按 `800` token、`120` token 重叠切分，再写入 PGVector：
 
 ```java
 DocumentSplitter splitter = DocumentSplitters.recursive(300, 50);
@@ -238,7 +238,7 @@ builder.chatMemoryProvider(memoryId -> MessageWindowChatMemory.builder()
 | `MessageWindowChatMemory` | 只保留最近 N 条消息，控制上下文长度 | 最大 `20` 条 |
 | `ChatMemoryStore` | 持久化记忆窗口消息 | `RedisChatMemoryStore` |
 
-`memory` profile 会启用 Redis 短期记忆与 PostgreSQL 对话记录/摘要。长期摘要追加在 `systemMessageProvider` 中，避免把完整历史无限放入模型上下文。
+`memory` profile 会启用 `RedisChatMemoryStore`：Redis 保存带 TTL 的短期上下文窗口，`MessageWindowChatMemory` 负责窗口裁剪、系统消息和工具消息的一致性；Store 只读写完整 JSON。PostgreSQL 的 `agent_conversation.summary` 保存长期记忆信息，`agent_message` 保存供 UI 展示和生成摘要使用的完整历史；二者都不能替代 Redis 短期上下文。每轮回答完成后，记忆决策模型会评估新增消息：仅在包含长期价值的信息时更新摘要，否则返回 `NO_UPDATE` 并标记这些消息已评估。长期摘要通过 `systemMessageProvider` 注入，避免把完整历史无限放入模型上下文。
 
 ## 9. 本项目 API 与源码索引
 

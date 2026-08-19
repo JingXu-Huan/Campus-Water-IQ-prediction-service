@@ -2,7 +2,24 @@ spring:
   application:
     name: prediction-service
   profiles:
-    # 本地独立运行不需要 JDBC；部署会话持久化时由环境变量覆盖为 memory。
-    active: local
+    # 默认启用持久化会话记忆；可通过环境变量覆盖此配置。
+    active: memory
 server:
   port: 8080
+
+rag:
+  enabled: ${RAG_ENABLED:true}
+  knowledge-location: ${RAG_KNOWLEDGE_LOCATION:classpath*:knowledge/*.md}
+  max-results: ${RAG_MAX_RESULTS:6}
+  min-score: ${RAG_MIN_SCORE:0.65}
+  embedding:
+    api-key: ${ZHIPU_EMBEDDING_API_KEY:${API_KEY:}}
+    model: ${ZHIPU_EMBEDDING_MODEL:embedding-3}
+    dimensions: ${ZHIPU_EMBEDDING_DIMENSIONS:1024}
+  pgvector:
+    host: ${PGVECTOR_HOST:localhost}
+    port: ${PGVECTOR_PORT:5432}
+    database: ${PGVECTOR_DATABASE:campus_water}
+    user: ${PGVECTOR_USER:campus_water}
+    password: ${PGVECTOR_PASSWORD:campus_water}
+    table: ${PGVECTOR_TABLE:rag_embeddings}

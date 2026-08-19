@@ -12,4 +12,6 @@ spring:
 agent:
   memory:
     redis-ttl-hours: ${AGENT_MEMORY_REDIS_TTL_HOURS:24}
-    summary-after-messages: ${AGENT_MEMORY_SUMMARY_AFTER_MESSAGES:12}
+
+mybatis-plus:
+  type-handlers-package: com.ncwu.predictionservice.conversation.typehandler

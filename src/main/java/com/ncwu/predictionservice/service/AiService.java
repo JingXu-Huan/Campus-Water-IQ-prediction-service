@@ -23,6 +23,12 @@ public interface AiService {
 
     Result<AgentChatResponse> chatWithAgent(String conversationId, String userId, String input);
 
+    Result<AgentConversation> resolveConversation(String conversationId, String userId);
+
+    Result<Void> recordConversationUserMessage(String conversationId, String userId, String input);
+
+    void completeConversationTurn(String conversationId, String answer);
+
     Result<AgentConversation> createConversation(String userId);
 
     Result<List<AgentConversation>> listConversations(String userId);

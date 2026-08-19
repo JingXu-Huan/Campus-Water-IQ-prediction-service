@@ -7,11 +7,11 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 纯文本和 Word 文档没有可稳定利用的 Markdown 标题语义，保留全文后交给递归切分器处理。
+ * 纯文本文档没有可稳定利用的 Markdown 标题语义，保留全文后交给递归切分器处理。
  */
 public class RecursiveDocumentChunkingProcessor implements DocumentChunkingProcessor {
 
-    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".txt", ".doc", ".docx");
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".txt");
 
     @Override
     public boolean supports(String fileName) {

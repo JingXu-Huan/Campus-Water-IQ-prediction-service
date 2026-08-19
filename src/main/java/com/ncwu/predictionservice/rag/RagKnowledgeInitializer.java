@@ -7,6 +7,8 @@ import com.ncwu.predictionservice.rag.chunking.RecursiveDocumentChunkingProcesso
 import dev.langchain4j.data.document.Document;
 import dev.langchain4j.data.document.DocumentSplitter;
 import dev.langchain4j.data.document.Metadata;
+import dev.langchain4j.data.document.loader.ClassPathDocumentLoader;
+import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -22,6 +24,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -65,8 +68,7 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
     private final EmbeddingModel zhipuEmbeddingModel;
     private final EmbeddingStore<TextSegment> pgVectorEmbeddingStore;
     private final Executor ragIndexingExecutor;
-    private final KnowledgeDocumentContentReader documentContentReader = new KnowledgeDocumentContentReader();
-    // Markdown 保留标题层级；文本和 Word 文档使用通用递归切分策略。
+    // Markdown 保留标题层级；纯文本使用通用递归切分策略。
     private final List<DocumentChunkingProcessor> documentChunkingProcessors = List.of(
             new MarkdownDocumentChunkingProcessor(),
             new RecursiveDocumentChunkingProcessor());
@@ -149,7 +151,8 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
             if (source == null) {
                 throw new IllegalStateException("无法识别 RAG 知识文件名：" + resource.getDescription());
             }
-            String content = documentContentReader.read(resource, source);
+            Document loadedDocument = loadDocument(resource, source);
+            String content = loadedDocument.text();
             String checksum = checksum(content);
             // 文件名同时作为状态表主键和向量元数据，便于按单文件清理与在 trace 中展示来源。
             Metadata metadata = Metadata.from(Map.of(
@@ -163,6 +166,28 @@ public class RagKnowledgeInitializer implements ApplicationRunner {
         }
         documents.sort(Comparator.comparing(KnowledgeDocument::id));
         return documents;
+    }
+
+    /**
+     * 由 LangChain4j 的加载器负责将文件转为 {@link Document}。
+     * 开发环境中的 classpath 资源通常是本地文件，优先使用 FileSystemDocumentLoader；
+     * 打包成可执行 JAR 后则改用 ClassPathDocumentLoader，避免尝试将 JAR 内条目当成普通文件。
+     */
+    private Document loadDocument(Resource resource, String source) throws IOException {
+        if (resource.isFile()) {
+            return FileSystemDocumentLoader.loadDocument(resource.getFile().toPath());
+        }
+        return ClassPathDocumentLoader.loadDocument(classpathPath(resource, source));
+    }
+
+    private String classpathPath(Resource resource, String source) throws IOException {
+        URL url = resource.getURL();
+        String externalForm = url.toExternalForm();
+        int jarEntryPrefix = externalForm.indexOf("!/");
+        if (jarEntryPrefix >= 0) {
+            return externalForm.substring(jarEntryPrefix + 2);
+        }
+        return "knowledge/" + source;
     }
 
     private void ingest(KnowledgeDocument document) {

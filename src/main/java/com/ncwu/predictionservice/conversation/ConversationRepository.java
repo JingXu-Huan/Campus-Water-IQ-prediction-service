@@ -17,7 +17,7 @@ import java.util.UUID;
 
 /**
  * 会话读写仓储。
- * 使用 MyBatis-Plus 的 Mapper 与 Lambda Wrapper，避免业务层直接拼接或执行 JDBC SQL。
+ * 使用 MyBatis-Plus 的 Mapper 与 Lambda Wrapper
  */
 @Repository
 @Profile("memory")
@@ -110,6 +110,21 @@ public class ConversationRepository {
                 .set(AgentConversationEntity::getSummary, summary)
                 .set(AgentConversationEntity::getSummarizedMessageCount, summarizedMessageCount)
                 .set(AgentConversationEntity::getLastActiveAt, LocalDateTime.now()));
+    }
+
+    /** 标记已由记忆决策模型评估的消息，避免无长期价值的内容被反复发送给模型。 */
+    public void markMessagesReviewed(String conversationId, int reviewedMessageCount) {
+        conversationMapper.update(null, new LambdaUpdateWrapper<AgentConversationEntity>()
+                .eq(AgentConversationEntity::getId, uuid(conversationId))
+                .set(AgentConversationEntity::getSummarizedMessageCount, reviewedMessageCount)
+                .set(AgentConversationEntity::getLastActiveAt, LocalDateTime.now()));
+    }
+
+    public String summary(String conversationId) {
+        AgentConversationEntity entity = conversationMapper.selectOne(new LambdaQueryWrapper<AgentConversationEntity>()
+                .eq(AgentConversationEntity::getId, uuid(conversationId))
+                .isNull(AgentConversationEntity::getDeletedAt));
+        return entity == null || entity.getSummary() == null ? "" : entity.getSummary();
     }
 
     public void resetSummary(String conversationId) {

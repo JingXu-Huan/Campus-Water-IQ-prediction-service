@@ -5,7 +5,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ncwu.common.domain.vo.Result;
 import com.ncwu.common.apis.iot_service.IotDataService;
+import com.ncwu.predictionservice.agent.AgentAnswer;
 import com.ncwu.predictionservice.agent.WaterAgent;
+import com.ncwu.predictionservice.agent.WaterInsightAiService;
+import com.ncwu.predictionservice.agent.DeviceQualityRate;
+import com.ncwu.predictionservice.agent.TextSuggestion;
+import com.ncwu.predictionservice.agent.WaterQualityMetrics;
+import com.ncwu.predictionservice.agent.WaterUsageHistory;
+import com.ncwu.predictionservice.agent.WaterUsagePrediction;
 import com.ncwu.predictionservice.conversation.AgentChatResponse;
 import com.ncwu.predictionservice.conversation.AgentConversation;
 import com.ncwu.predictionservice.conversation.AgentMessage;
@@ -14,7 +21,6 @@ import com.ncwu.predictionservice.conversation.LongTermMemoryService;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.UsageBO;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,8 +34,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static com.ncwu.predictionservice.system.Prompt.waterUseSuggestion;
-
 /**
  * @author jingxu
  * @version 1.0.0
@@ -40,8 +44,8 @@ import static com.ncwu.predictionservice.system.Prompt.waterUseSuggestion;
 @RequiredArgsConstructor
 public class AiServiceImpl implements AiService {
 
-    private final ChatModel chatModel;
     private final WaterAgent waterAgent;
+    private final WaterInsightAiService waterInsightAiService;
     private final RedissonClient redissonClient;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -83,7 +87,7 @@ public class AiServiceImpl implements AiService {
             String response;
             try {
                 if (lock.tryLock()) {
-                    response = chatModel.chat(waterUseSuggestion);
+                    response = suggestionOf(waterInsightAiService.suggestWaterUsage());
                     redisTemplate.opsForValue().set("suggestion", response, 30, TimeUnit.MINUTES);
                 } else return Result.ok("刷牙的时候记得把水龙头关掉哦");
             } catch (Exception e) {
@@ -119,9 +123,8 @@ public class AiServiceImpl implements AiService {
                         return Result.ok(cachedResult);
                     }
                     // 调用AI API
-                    String res = chatModel
-                            .chat("请根据我给你提供的水质信息，作出评价并且给出建议(50字)" +
-                                    "：分数：" + score + "ph" + ph + "浊度" + th + "含氯量" + ch);
+                    String res = suggestionOf(waterInsightAiService.suggestWaterQuality(
+                            new WaterQualityMetrics(score, ph, ch, th)));
                     // 缓存结果，设置10分钟过期
                     redisTemplate.opsForValue().set(cacheKey, res, 10, TimeUnit.MINUTES);
                     return Result.ok(res);
@@ -150,9 +153,7 @@ public class AiServiceImpl implements AiService {
         if (suggestion != null) {
             return Result.ok(suggestion);
         } else {
-            String res = chatModel
-                    .chat("我给你一个我们系统水质合格率的数据，你来写一句带有情绪价值的评语，不超过20字。水质合格率："
-                            + data * 100 + "%");
+            String res = suggestionOf(waterInsightAiService.suggestDeviceQuality(new DeviceQualityRate(data)));
             redisTemplate.opsForValue().set("suggestionOfDeviceData", res, 240, TimeUnit.SECONDS);
             return Result.ok(res);
         }
@@ -161,31 +162,24 @@ public class AiServiceImpl implements AiService {
 
     @Override
     public Result<AgentChatResponse> chatWithAgent(String conversationId, String userId, String input) {
-        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
-        LongTermMemoryService longTermMemoryService = longTermMemoryServiceProvider.getIfAvailable();
-        if (conversationRepository == null || longTermMemoryService == null) {
-            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        Result<AgentConversation> conversationResult = resolveConversation(conversationId, userId);
+        if (conversationResult.getData() == null) {
+            return Result.fail(null, conversationResult.getMessage());
         }
-        AgentConversation conversation;
-        try {
-            conversation = conversationId == null || conversationId.isBlank()
-                    ? conversationRepository.create(userId)
-                    : conversationRepository.findOwned(conversationId, userId)
-                    .orElseThrow(() -> new IllegalArgumentException("会话不存在或无权限访问"));
-        } catch (RuntimeException exception) {
-            return Result.fail(null, exception.getMessage());
-        }
+        AgentConversation conversation = conversationResult.getData();
 
         RLock lock = redissonClient.getLock("agent:conversation:" + conversation.id());
         try {
             if (!lock.tryLock(5, 90, TimeUnit.SECONDS)) {
                 return Result.fail(null, "该会话正在生成回复，请稍后重试");
             }
-            conversationRepository.appendMessage(conversation.id(), "user", input);
-            conversationRepository.setTitleFromFirstMessage(conversation.id(), input);
-            String answer = waterAgent.chat(conversation.id(), input);
-            conversationRepository.appendMessage(conversation.id(), "assistant", answer);
-            longTermMemoryService.refreshIfNeeded(conversation.id());
+            Result<Void> recordResult = recordConversationUserMessage(conversation.id(), userId, input);
+            if (!"200".equals(recordResult.getCode())) {
+                return Result.fail(null, recordResult.getMessage());
+            }
+            AgentAnswer agentAnswer = waterAgent.chat(conversation.id(), input);
+            String answer = answerOf(agentAnswer);
+            completeConversationTurn(conversation.id(), answer);
             return Result.ok(new AgentChatResponse(conversation.id(), answer));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -198,6 +192,49 @@ public class AiServiceImpl implements AiService {
                 lock.unlock();
             }
         }
+    }
+
+    @Override
+    public Result<AgentConversation> resolveConversation(String conversationId, String userId) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        LongTermMemoryService longTermMemoryService = longTermMemoryServiceProvider.getIfAvailable();
+        if (conversationRepository == null || longTermMemoryService == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        }
+        try {
+            AgentConversation conversation = conversationId == null || conversationId.isBlank()
+                    ? conversationRepository.create(userId)
+                    : conversationRepository.findOwned(conversationId, userId)
+                    .orElseThrow(() -> new IllegalArgumentException("会话不存在或无权限访问"));
+            return Result.ok(conversation);
+        } catch (RuntimeException exception) {
+            return Result.fail(null, exception.getMessage());
+        }
+    }
+
+    @Override
+    public Result<Void> recordConversationUserMessage(String conversationId, String userId, String input) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        if (conversationRepository == null) {
+            return Result.fail(null, "会话功能未启用；请使用 memory profile 启动服务");
+        }
+        if (conversationRepository.findOwned(conversationId, userId).isEmpty()) {
+            return Result.fail(null, "会话不存在或无权限访问");
+        }
+        conversationRepository.appendMessage(conversationId, "user", input);
+        conversationRepository.setTitleFromFirstMessage(conversationId, input);
+        return Result.ok(null);
+    }
+
+    @Override
+    public void completeConversationTurn(String conversationId, String answer) {
+        ConversationRepository conversationRepository = conversationRepositoryProvider.getIfAvailable();
+        LongTermMemoryService longTermMemoryService = longTermMemoryServiceProvider.getIfAvailable();
+        if (conversationRepository == null || longTermMemoryService == null) {
+            return;
+        }
+        conversationRepository.appendMessage(conversationId, "assistant", answer);
+        longTermMemoryService.refreshIfNeeded(conversationId);
     }
 
     @Override
@@ -258,25 +295,10 @@ public class AiServiceImpl implements AiService {
         return Result.ok(null);
     }
 
-    private double getRes(List<Double> usage) {
-        try {
-            String response = chatModel.chat(
-                    "Predict the next water usage value based on this data: " + usage.toString() +
-                            ". Return ONLY a single number without any explanation, text, or formatting. " +
-                            "Example response: 209.25"
-            );
-            return Double.parseDouble(response.trim());
-        } catch (NumberFormatException e) {
-            log.error("Failed to parse AI response: {}", e.getMessage());
-            throw new RuntimeException("Invalid AI response format", e);
-        } catch (Exception e) {
-            log.error("AI prediction failed: {}", e.getMessage());
-            throw new RuntimeException("AI prediction failed", e);
-        }
-    }
-
     private Result<UsageVO> generateAndCachePrediction(List<Double> usage, int campus) {
-        double predictedValue = getRes(usage);
+        WaterUsagePrediction prediction = waterInsightAiService
+                .predictTomorrowWaterUsage(new WaterUsageHistory(List.copyOf(usage)));
+        double predictedValue = predictedUsageOf(prediction);
         UsageBO usageBO = new UsageBO(predictedValue, LocalDateTime.now().plusMinutes(5));
 
         try {
@@ -299,6 +321,28 @@ public class AiServiceImpl implements AiService {
 
     private boolean isCacheExpired(UsageBO usageBO) {
         return usageBO.getExpireTime().isBefore(LocalDateTime.now());
+    }
+
+    private String answerOf(AgentAnswer result) {
+        if (result == null || result.answer() == null || result.answer().isBlank()) {
+            throw new IllegalStateException("模型未返回有效回答");
+        }
+        return result.answer().trim();
+    }
+
+    private String suggestionOf(TextSuggestion result) {
+        if (result == null || result.content() == null || result.content().isBlank()) {
+            throw new IllegalStateException("模型未返回有效建议");
+        }
+        return result.content().trim();
+    }
+
+    private double predictedUsageOf(WaterUsagePrediction result) {
+        if (result == null || result.predictedUsage() == null
+                || !Double.isFinite(result.predictedUsage()) || result.predictedUsage() < 0) {
+            throw new IllegalStateException("模型未返回有效的用水预测值");
+        }
+        return result.predictedUsage();
     }
 
     @Async

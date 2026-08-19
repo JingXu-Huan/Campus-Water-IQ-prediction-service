@@ -38,5 +38,5 @@ public interface WaterAgent {
             """;
 
     @SystemMessage(SYSTEM_MESSAGE)
-    String chat(@MemoryId String conversationId, @UserMessage String userInput);
+    AgentAnswer chat(@MemoryId String conversationId, @UserMessage String userInput);
 }

@@ -1,6 +1,7 @@
 package com.ncwu.predictionservice.config;
 
 import com.ncwu.predictionservice.agent.WaterAgent;
+import com.ncwu.predictionservice.agent.WaterInsightAiService;
 import com.ncwu.predictionservice.agent.WaterStreamingAgent;
 import com.ncwu.predictionservice.conversation.ConversationRepository;
 import com.ncwu.predictionservice.functionCalling.IotDeviceTools;
@@ -87,6 +88,17 @@ public class ModelConfig {
                     + conversationRepository.longTermContext(conversationId.toString()));
         }
         return builder.build();
+    }
+
+    /**
+     * 面向预测、评语等机器消费结果的模型代理。
+     * 与 WaterAgent 分离，避免这些独立任务携带对话记忆、RAG 和工具调用。
+     */
+    @Bean
+    public WaterInsightAiService waterInsightAiService(ChatModel chatModel) {
+        return AiServices.builder(WaterInsightAiService.class)
+                .chatModel(chatModel)
+                .build();
     }
 
     @Bean

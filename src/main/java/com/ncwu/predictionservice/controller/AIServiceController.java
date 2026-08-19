@@ -16,6 +16,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,7 +30,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @RestController
@@ -41,6 +44,7 @@ public class AIServiceController {
     private final IotDataService iotDataService;
     private final AgentTraceContext agentTraceContext;
     private final WaterStreamingAgent waterStreamingAgent;
+    private final RedissonClient redissonClient;
 
     @PostMapping("/predictTomorrowWaterUsage")
     public Result<UsageVO> predictTomorrowWaterUsage(@Min(1) @Max(3) @RequestParam int campus) {
@@ -93,21 +97,47 @@ public class AIServiceController {
                 return Result.fail(null, result.getMessage());
             }
             return Result.ok(new com.ncwu.predictionservice.trace.AgentChatResponse(
-                    result.getData().answer(), activeTrace.snapshot()));
+                    result.getData().conversationId(), result.getData().answer(), activeTrace.snapshot()));
         }
     }
 
     @PostMapping(value = "/chatWithAgent/stream", produces = "text/event-stream")
     public SseEmitter streamChat(@RequestParam String input,
-                                 @RequestParam(required = false) String conversationId) {
+                                 @RequestParam(required = false) String conversationId,
+                                 @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
         SseEmitter emitter = new SseEmitter(0L);
         AgentStreamTraceCollector traceCollector = new AgentStreamTraceCollector();
-        // 未持久化的流式请求不能与其他浏览器请求共用记忆窗口；只有 memory profile 下才复用传入的会话 ID。
-        String memoryId = conversationId == null || conversationId.isBlank() ? "stream-" + UUID.randomUUID() : conversationId;
+        Result<AgentConversation> conversationResult = aiService.resolveConversation(conversationId, userId);
+        if (conversationResult.getData() == null) {
+            send(emitter, "error", conversationResult.getMessage());
+            emitter.complete();
+            return emitter;
+        }
+        String memoryId = conversationResult.getData().id();
+        RLock lock = redissonClient.getLock("agent:conversation:" + memoryId);
+        long lockOwnerThreadId = Thread.currentThread().threadId();
+        AtomicBoolean completed = new AtomicBoolean();
+        StringBuffer answer = new StringBuffer();
         try {
+            if (!lock.tryLock(5, 90, TimeUnit.SECONDS)) {
+                send(emitter, "error", "该会话正在生成回复，请稍后重试");
+                emitter.complete();
+                return emitter;
+            }
+            Result<Void> recordResult = aiService.recordConversationUserMessage(memoryId, userId, input);
+            if (!"200".equals(recordResult.getCode())) {
+                send(emitter, "error", recordResult.getMessage());
+                emitter.complete();
+                unlock(lock, lockOwnerThreadId);
+                return emitter;
+            }
+            send(emitter, "conversation", memoryId);
             TokenStream tokenStream = waterStreamingAgent.chat(memoryId, input);
             tokenStream
-                    .onPartialResponse(token -> send(emitter, "delta", token))
+                    .onPartialResponse(token -> {
+                        answer.append(token);
+                        send(emitter, "delta", token);
+                    })
                     .onRetrieved(contents -> {
                         traceCollector.recordRetrievedContent(contents);
                         // 逐步推送完整快照，使前端能在模型回答完成前展示检索来源。
@@ -118,22 +148,39 @@ public class AIServiceController {
                         send(emitter, "trace", traceCollector.snapshot());
                     })
                     .onCompleteResponse(ignored -> {
+                        if (completed.compareAndSet(false, true)) {
+                            try {
+                                aiService.completeConversationTurn(memoryId, answer.toString());
+                            } finally {
+                                unlock(lock, lockOwnerThreadId);
+                            }
+                        }
                         send(emitter, "trace", traceCollector.snapshot());
                         send(emitter, "done", "");
                         emitter.complete();
                     })
                     .onError(error -> {
+                        if (completed.compareAndSet(false, true)) {
+                            unlock(lock, lockOwnerThreadId);
+                        }
                         log.error("流式 Agent 调用失败", error);
                         send(emitter, "error", error.getMessage() == null ? "调用模型失败，请稍后重试" : error.getMessage());
                         emitter.completeWithError(error);
                     })
                     .start();
         } catch (Exception error) {
+            if (completed.compareAndSet(false, true)) {
+                unlock(lock, lockOwnerThreadId);
+            }
             log.error("启动流式 Agent 调用失败", error);
             send(emitter, "error", error.getMessage() == null ? "调用模型失败，请稍后重试" : error.getMessage());
             emitter.completeWithError(error);
         }
         return emitter;
+    }
+
+    private void unlock(RLock lock, long ownerThreadId) {
+        lock.unlockAsync(ownerThreadId);
     }
 
     @PostMapping("/conversations")

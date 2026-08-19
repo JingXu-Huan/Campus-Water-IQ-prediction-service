@@ -37,23 +37,26 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
             return ChatMessageDeserializer.messagesFromJson(json);
         } catch (RuntimeException exception) {
             log.warn("无法读取会话 {} 的 Redis 上下文，将重新开始窗口记忆", memoryId, exception);
-            deleteMessages(memoryId);
+            redisTemplate.delete(key(memoryId));
             return List.of();
         }
     }
 
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
-        // 每轮对话刷新 TTL：活跃会话保留上下文，已废弃会话不会在 Redis 中无限累积序列化历史。
-        redisTemplate.opsForValue().set(
-                key(memoryId),
-                ChatMessageSerializer.messagesToJson(messages),
-                Duration.ofHours(redisTtlHours));
+        // MessageWindowChatMemory 已完成窗口裁剪；此处只保存其给出的完整上下文快照。
+        String json = ChatMessageSerializer.messagesToJson(messages);
+        cache(memoryId, json);
     }
 
     @Override
     public void deleteMessages(Object memoryId) {
         redisTemplate.delete(key(memoryId));
+    }
+
+    private void cache(Object memoryId, String json) {
+        // 每轮对话刷新 TTL：活跃会话保留上下文，已废弃会话不会无限占用 Redis。
+        redisTemplate.opsForValue().set(key(memoryId), json, Duration.ofHours(redisTtlHours));
     }
 
     private String key(Object memoryId) {

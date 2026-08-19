@@ -19,6 +19,9 @@ $env:CHAT_MEMORY_DB_PASSWORD = 'campus_water'
 - `GET /ai/conversations`：获取当前用户会话列表。
 - `POST /ai/chatWithAgent?conversationId={id}&input={text}`：发送消息。未传
   `conversationId` 时自动创建会话，响应中的 `data.conversationId` 应由前端保存。
+- `POST /ai/chatWithAgent/stream?conversationId={id}&input={text}`：流式发送消息；事件
+  `conversation` 会先返回会话 ID，随后推送 `delta`、`trace` 和 `done`。该接口与普通接口
+  使用相同的鉴权、消息持久化、Redis 窗口记忆和长期摘要机制。
 - `GET /ai/conversations/{id}/messages`：获取持久化聊天记录。
 - `POST /ai/conversations/{id}/clear-context`：清除 Redis 上下文与摘要，保留审计消息。
 - `DELETE /ai/conversations/{id}`：软删除会话并移除 Redis 上下文。
