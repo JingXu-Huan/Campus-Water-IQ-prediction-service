@@ -18,10 +18,12 @@ import com.ncwu.predictionservice.conversation.AgentConversation;
 import com.ncwu.predictionservice.conversation.AgentMessage;
 import com.ncwu.predictionservice.conversation.ConversationRepository;
 import com.ncwu.predictionservice.conversation.LongTermMemoryService;
+import com.ncwu.predictionservice.task.ScheduledTaskRepository;
 import com.ncwu.predictionservice.service.AiService;
 import com.ncwu.predictionservice.domain.UsageBO;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
+import dev.langchain4j.invocation.InvocationParameters;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -32,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.ObjectProvider;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,6 +53,7 @@ public class AiServiceImpl implements AiService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<ConversationRepository> conversationRepositoryProvider;
+    private final ObjectProvider<ScheduledTaskRepository> scheduledTaskRepositoryProvider;
     private final ObjectProvider<LongTermMemoryService> longTermMemoryServiceProvider;
     private final ObjectProvider<ChatMemoryStore> chatMemoryStoreProvider;
 
@@ -177,7 +181,8 @@ public class AiServiceImpl implements AiService {
             if (!"200".equals(recordResult.getCode())) {
                 return Result.fail(null, recordResult.getMessage());
             }
-            AgentAnswer agentAnswer = waterAgent.chat(conversation.id(), input);
+            AgentAnswer agentAnswer = waterAgent.chat(conversation.id(), input,
+                    InvocationParameters.from(Map.of("userId", userId)));
             String answer = answerOf(agentAnswer);
             completeConversationTurn(conversation.id(), answer);
             return Result.ok(new AgentChatResponse(conversation.id(), answer));
@@ -292,6 +297,8 @@ public class AiServiceImpl implements AiService {
         }
         chatMemoryStore.deleteMessages(conversationId);
         conversationRepository.softDelete(conversationId);
+        scheduledTaskRepositoryProvider.ifAvailable(repository ->
+                repository.softDeleteByConversation(conversationId, userId));
         return Result.ok(null);
     }
 

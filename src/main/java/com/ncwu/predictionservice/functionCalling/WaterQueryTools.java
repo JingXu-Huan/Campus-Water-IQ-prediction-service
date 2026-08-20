@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Map;
 
@@ -52,14 +53,41 @@ public class WaterQueryTools {
     @Tool("""
             此工具用于查询某校区的某时间段用水量数据。
             - school（校区）：1 = 花园校区，2 = 龙子湖校区，3 = 江淮校区
-            - start（开始时间）：格式 yyyy-MM-dd HH:mm:ss
-            - end（结束时间）：格式 yyyy-MM-dd HH:mm:ss
+            - start（开始时间）：必须传 JSON 字符串，格式 yyyy-MM-dd HH:mm:ss，例如 "2026-08-20 00:00:00"
+            - end（结束时间）：必须传 JSON 字符串，格式 yyyy-MM-dd HH:mm:ss，例如 "2026-08-20 09:15:00"
             【收集参数的原则】
             - 若用户未提供某参数，就查询从今天零点到现在的用水量。
             - 你可以调用一些时间工具获取现在的时间。
-            - 三个参数齐全后，立即调用查询工具，无需再次确认。""")
-    Result<Double> getSchoolUsage(int school, LocalDateTime start, LocalDateTime end) {
-        return iotDataService.getSchoolUsage(school, start, end);
+            - 三个参数齐全后，立即调用查询工具，无需再次确认。
+            - start 和 end 是 JSON 字符串；不要把额外的引号字符放进字符串值中。""")
+    Result<Double> getSchoolUsage(int school, String start, String end) {
+        return iotDataService.getSchoolUsage(school, parseToolDateTime(start), parseToolDateTime(end));
+    }
+
+    private LocalDateTime parseToolDateTime(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("时间参数不能为空，格式应为 yyyy-MM-dd HH:mm:ss");
+        }
+        String normalized = stripWrappingQuotes(value.trim());
+        try {
+            return LocalDateTime.parse(normalized.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException(
+                    "时间参数格式错误，应为 yyyy-MM-dd HH:mm:ss，实际为：" + value, exception);
+        }
+    }
+
+    private String stripWrappingQuotes(String value) {
+        if (value.length() >= 2) {
+            char first = value.charAt(0);
+            char last = value.charAt(value.length() - 1);
+            if ((first == '"' && last == '"')
+                    || (first == '\'' && last == '\'')
+                    || (first == '“' && last == '”')) {
+                return value.substring(1, value.length() - 1).trim();
+            }
+        }
+        return value;
     }
 
     /**

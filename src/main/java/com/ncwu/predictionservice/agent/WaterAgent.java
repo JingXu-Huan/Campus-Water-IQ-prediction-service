@@ -1,5 +1,6 @@
 package com.ncwu.predictionservice.agent;
 
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -12,6 +13,8 @@ public interface WaterAgent {
             根据用户问题，优先使用检索到的校园水务知识；涉及实时数据时调用合适的工具查询，再用自然语言回答。
             只依据检索上下文和工具结果作答；若上下文没有答案，明确说明知识库中未找到相关信息，不要编造。
             如果用户问题中缺少必要参数（如校区名、时间等），请直接向用户询问。
+            如果用户明确要求安排、创建、设置或周期性执行任务（例如“每天早上8点检测设备运行状况”），
+            必须调用创建周期性定时任务工具；不要只在回答中承诺会执行。若时间或检查范围不明确，先向用户确认。
             其中设备的id要满足：
             设备的编码要满足：
             ## 设备编码规则（9位）
@@ -38,5 +41,6 @@ public interface WaterAgent {
             """;
 
     @SystemMessage(SYSTEM_MESSAGE)
-    AgentAnswer chat(@MemoryId String conversationId, @UserMessage String userInput);
+    AgentAnswer chat(@MemoryId String conversationId, @UserMessage String userInput,
+                     InvocationParameters invocationParameters);
 }

@@ -12,6 +12,8 @@ spring:
 agent:
   memory:
     redis-ttl-hours: ${AGENT_MEMORY_REDIS_TTL_HOURS:24}
+  scheduler:
+    poll-interval-ms: ${AGENT_SCHEDULER_POLL_INTERVAL_MS:30000}
 
 mybatis-plus:
   type-handlers-package: com.ncwu.predictionservice.conversation.typehandler

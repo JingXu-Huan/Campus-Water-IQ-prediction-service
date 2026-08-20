@@ -8,6 +8,7 @@ import com.ncwu.predictionservice.functionCalling.IotDeviceTools;
 import com.ncwu.predictionservice.functionCalling.OtherTools;
 import com.ncwu.predictionservice.functionCalling.RepairTools;
 import com.ncwu.predictionservice.functionCalling.WaterQueryTools;
+import com.ncwu.predictionservice.task.ScheduledTaskTools;
 import com.ncwu.predictionservice.trace.AgentTraceContext;
 import dev.langchain4j.community.model.zhipu.ZhipuAiChatModel;
 import dev.langchain4j.community.model.zhipu.ZhipuAiStreamingChatModel;
@@ -60,11 +61,13 @@ public class ModelConfig {
     public WaterAgent waterAgent(ChatModel chatModel,
                                  ObjectProvider<ContentRetriever> contentRetrieverProvider,
                                  ObjectProvider<ChatMemoryStore> chatMemoryStoreProvider,
-                                 ObjectProvider<ConversationRepository> conversationRepositoryProvider) {
+                                 ObjectProvider<ConversationRepository> conversationRepositoryProvider,
+                                 ObjectProvider<ScheduledTaskTools> scheduledTaskToolsProvider) {
         var builder = AiServices.builder(WaterAgent.class)
                 .chatModel(chatModel)
-                .tools(waterQueryTools, iotDeviceTools, repairTools, otherTools)
-                .afterToolExecution(agentTraceContext::recordToolExecution);
+                .tools(waterQueryTools, iotDeviceTools, repairTools, otherTools);
+        scheduledTaskToolsProvider.ifAvailable(builder::tools);
+        builder.afterToolExecution(agentTraceContext::recordToolExecution);
         ContentRetriever contentRetriever = contentRetrieverProvider.getIfAvailable();
         if (contentRetriever != null) {
             builder.contentRetriever(contentRetriever);
@@ -105,10 +108,12 @@ public class ModelConfig {
     public WaterStreamingAgent waterStreamingAgent(StreamingChatModel streamingChatModel,
                                                     ObjectProvider<ContentRetriever> contentRetrieverProvider,
                                                     ObjectProvider<ChatMemoryStore> chatMemoryStoreProvider,
-                                                    ObjectProvider<ConversationRepository> conversationRepositoryProvider) {
+                                                    ObjectProvider<ConversationRepository> conversationRepositoryProvider,
+                                                    ObjectProvider<ScheduledTaskTools> scheduledTaskToolsProvider) {
         var builder = AiServices.builder(WaterStreamingAgent.class)
                 .streamingChatModel(streamingChatModel)
                 .tools(waterQueryTools, iotDeviceTools, repairTools, otherTools);
+        scheduledTaskToolsProvider.ifAvailable(builder::tools);
         ContentRetriever contentRetriever = contentRetrieverProvider.getIfAvailable();
         if (contentRetriever != null) {
             builder.contentRetriever(contentRetriever);

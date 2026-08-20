@@ -9,8 +9,12 @@ import com.ncwu.predictionservice.conversation.AgentConversation;
 import com.ncwu.predictionservice.conversation.AgentMessage;
 import com.ncwu.predictionservice.domain.vo.UsageVO;
 import com.ncwu.predictionservice.service.AiService;
+import com.ncwu.predictionservice.task.ScheduledTask;
+import com.ncwu.predictionservice.task.ScheduledTaskExecution;
+import com.ncwu.predictionservice.task.ScheduledTaskService;
 import com.ncwu.predictionservice.trace.AgentStreamTraceCollector;
 import com.ncwu.predictionservice.trace.AgentTraceContext;
+import dev.langchain4j.invocation.InvocationParameters;
 import dev.langchain4j.service.TokenStream;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -18,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,6 +35,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -45,6 +51,7 @@ public class AIServiceController {
     private final AgentTraceContext agentTraceContext;
     private final WaterStreamingAgent waterStreamingAgent;
     private final RedissonClient redissonClient;
+    private final ObjectProvider<ScheduledTaskService> scheduledTaskServiceProvider;
 
     @PostMapping("/predictTomorrowWaterUsage")
     public Result<UsageVO> predictTomorrowWaterUsage(@Min(1) @Max(3) @RequestParam int campus) {
@@ -174,7 +181,8 @@ public class AIServiceController {
             send(emitter, "conversation", memoryId);
 
             // 启动 Agent 的流式调用；真正的模型输出会在下面的回调中陆续到达。
-            TokenStream tokenStream = waterStreamingAgent.chat(memoryId, input);
+            TokenStream tokenStream = waterStreamingAgent.chat(memoryId, input,
+                    InvocationParameters.from(Map.of("userId", userId)));
             tokenStream
                     .onPartialResponse(token -> {
                         // 每收到一个回答片段，就立即推送 delta，同时拼接完整回答。
@@ -263,6 +271,39 @@ public class AIServiceController {
             @PathVariable String conversationId,
             @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
         return aiService.deleteConversation(conversationId, userId);
+    }
+
+    @GetMapping("/scheduled-tasks")
+    public Result<List<ScheduledTask>> listScheduledTasks(
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        ScheduledTaskService taskService = scheduledTaskServiceProvider.getIfAvailable();
+        return taskService == null
+                ? Result.fail(null, "定时任务功能未启用；请使用 memory profile 启动服务")
+                : Result.ok(taskService.list(userId));
+    }
+
+    @GetMapping("/scheduled-tasks/{taskId}/executions")
+    public Result<List<ScheduledTaskExecution>> listScheduledTaskExecutions(
+            @PathVariable String taskId,
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        ScheduledTaskService taskService = scheduledTaskServiceProvider.getIfAvailable();
+        if (taskService == null) {
+            return Result.fail(null, "定时任务功能未启用；请使用 memory profile 启动服务");
+        }
+        return Result.ok(taskService.history(taskId, userId));
+    }
+
+    @DeleteMapping("/scheduled-tasks/{taskId}")
+    public Result<Void> deleteScheduledTask(
+            @PathVariable String taskId,
+            @RequestHeader(value = "X-User-Id", defaultValue = "anonymous") String userId) {
+        ScheduledTaskService taskService = scheduledTaskServiceProvider.getIfAvailable();
+        if (taskService == null) {
+            return Result.fail(null, "定时任务功能未启用；请使用 memory profile 启动服务");
+        }
+        return taskService.delete(taskId, userId)
+                ? Result.ok(null)
+                : Result.fail(null, "定时任务不存在或无权限访问");
     }
 
     private void send(SseEmitter emitter, String eventName, Object payload) {
