@@ -1,0 +1,143 @@
+import axios from 'axios'
+
+// 提取 token 的辅助函数
+const getToken = () => {
+  try {
+    const authData = localStorage.getItem('auth-storage')
+    if (authData) {
+      const parsed = JSON.parse(authData)
+      return parsed.state?.token || parsed.token || null
+    }
+  } catch (e) {
+    console.error('Failed to parse auth token:', e)
+  }
+  return null
+}
+
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+api.interceptors.request.use(
+  (config) => {
+    const token = getToken()
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+api.interceptors.response.use(
+  (response) => {
+    const data = response.data
+    // 检查业务响应是否成功
+    if (data.code && data.code !== '00000' && data.code !== '200') {
+      return Promise.reject(new Error(data.message || '请求失败'))
+    }
+    return data
+  },
+  (error) => {
+    const message = error.response?.data?.message || '请求失败，请稍后重试'
+    return Promise.reject(new Error(message))
+  }
+)
+
+// 报修单状态
+export type RepairStatus = 'DRAFT' | 'CONFIRMED' | 'PROCESSING' | 'DONE' | 'CANCELLED'
+
+// 报修单详情
+export interface RepairOrder {
+  id: string
+  deviceCode: string
+  reportName: string
+  contactInfo: string
+  desc: string
+  severity: number
+  status: RepairStatus
+  remark: string
+  createdAt: string
+  updatedAt: string
+}
+
+// 状态标签颜色映射
+export const statusColors: Record<RepairStatus, { bg: string; text: string }> = {
+  DRAFT: { bg: 'bg-gray-100', text: 'text-gray-600' },
+  CONFIRMED: { bg: 'bg-blue-100', text: 'text-blue-600' },
+  PROCESSING: { bg: 'bg-yellow-100', text: 'text-yellow-600' },
+  DONE: { bg: 'bg-green-100', text: 'text-green-600' },
+  CANCELLED: { bg: 'bg-red-100', text: 'text-red-600' },
+}
+
+// 状态中文映射
+export const statusLabels: Record<RepairStatus, string> = {
+  DRAFT: '草稿',
+  CONFIRMED: '已确认',
+  PROCESSING: '待确认',
+  DONE: '已完成',
+  CANCELLED: '已取消',
+}
+
+// 严重程度标签
+export const severityLabels: Record<number, string> = {
+  1: '轻微',
+  2: '一般',
+  3: '严重',
+  4: '紧急',
+}
+
+export const severityColors: Record<number, { bg: string; text: string }> = {
+  1: { bg: 'bg-green-100', text: 'text-green-600' },
+  2: { bg: 'bg-yellow-100', text: 'text-yellow-600' },
+  3: { bg: 'bg-orange-100', text: 'text-orange-600' },
+  4: { bg: 'bg-red-100', text: 'text-red-600' },
+}
+
+export interface UserReportDTO {
+  deviceCode: string
+  contactInfo?: string
+  desc?: string
+  severity?: number
+  reportName?: string
+}
+
+export const repairApi = {
+  // 用户上报设备异常报修单
+  report: (data: UserReportDTO) =>
+    api.post<{ code: string; data: boolean }>('/user-report/report', data),
+
+  // 按状态查询报修单
+  getByStatus: (status: RepairStatus, pageNum = 1, pageSize = 10) => 
+    api.get<{ code: string; data: RepairOrder[] }>('/operations/listByStatus', {
+      params: { status, pageNum, pageSize }
+    }),
+
+  // 修改报修单状态
+  changeStatus: (status: RepairStatus, deviceReservationId: string) =>
+    api.get<{ code: string; data: boolean }>('/operations/changeStatus', {
+      params: { status, deviceReservationId }
+    }),
+
+  // 查询未解决的报修单数量
+  getUnclosedCount: () => 
+    api.get<{ code: string; data: number }>('/operations/getAllUnClosedNums'),
+
+  // 获取校园告警列表
+  getCampusWarnings: async (campus: number): Promise<any[]> => {
+    try {
+        const res = await api.get<any[]>('/operations/getCampusWarings', {
+            params: { campus }
+        })
+        return res?.data ?? res ?? []
+    } catch (error) {
+        console.error('获取校园告警失败:', error)
+        return []
+    }
+}
+}
+export default repairApi
